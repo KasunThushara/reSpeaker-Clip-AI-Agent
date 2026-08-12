@@ -1,0 +1,9 @@
+Flask==3.0.3
+flask-cors==6.0.5
+groq==0.37.1
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-prebuilt==1.1.0
+langgraph-sdk==0.4.2
+python-dotenv==1.0.1
+pytest==8.3.2
