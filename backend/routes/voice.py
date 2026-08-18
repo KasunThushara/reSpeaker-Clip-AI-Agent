@@ -7,6 +7,15 @@ voice_bp = Blueprint("voice", __name__)
 _graph = None
 
 
+def _header_safe(text: str) -> str:
+    return (
+        text.replace("\n", " ")
+        .replace("\r", "")
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+
+
 def _get_graph():
     global _graph
     if _graph is None:
@@ -43,8 +52,8 @@ def voice():
         tts_audio,
         mimetype="audio/wav",
         headers={
-            "X-Transcript": transcript,
-            "X-Response": result["response"],
+            "X-Transcript": _header_safe(transcript),
+            "X-Response": _header_safe(result["response"]),
             "X-Conversation-Id": conversation_id,
         },
     )

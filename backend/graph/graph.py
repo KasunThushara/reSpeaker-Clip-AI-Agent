@@ -1,23 +1,40 @@
-from langgraph.graph import StateGraph, END
+from typing import Literal
+
+from langgraph.graph import StateGraph, START, END
+
 from backend.graph.state import AgentState
 from backend.graph.router import router_node
 from backend.graph.nodes.simple import simple_node
+from backend.graph.nodes.agentic import agentic_node
+from backend.graph.nodes.persona import persona_node
 
 
-def build_graph() -> StateGraph:
-    graph = StateGraph(AgentState)
+def route_after_router(state: AgentState) -> Literal["simple", "context", "persona"]:
+    return state["route"]
 
-    graph.add_node("router", router_node)
-    graph.add_node("simple", simple_node)
 
-    graph.set_entry_point("router")
+def build_graph():
+    builder = StateGraph(AgentState)
 
-    graph.add_conditional_edges(
+    builder.add_node("router", router_node)
+    builder.add_node("simple", simple_node)
+    builder.add_node("context", agentic_node)
+    builder.add_node("persona", persona_node)
+
+    builder.add_edge(START, "router")
+
+    builder.add_conditional_edges(
         "router",
-        lambda state: state["route"],
-        {"simple": "simple"},
+        route_after_router,
+        {
+            "simple": "simple",
+            "context": "context",
+            "persona": "persona",
+        },
     )
 
-    graph.add_edge("simple", END)
+    builder.add_edge("simple", END)
+    builder.add_edge("context", END)
+    builder.add_edge("persona", END)
 
-    return graph.compile()
+    return builder.compile()

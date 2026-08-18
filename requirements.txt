@@ -6,4 +6,5 @@ langgraph-checkpoint==4.2.0
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.2
 python-dotenv==1.0.1
+tavily-python==0.7.27
 pytest==8.3.2
