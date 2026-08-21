@@ -23,5 +23,11 @@ class Settings:
 
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
 
+    MEM0_API_KEY: str = os.getenv("MEM0_API_KEY", "")
+    MEM0_USER_ID: str = os.getenv("MEM0_USER_ID", "user-1")
+
+    NOTION_API_KEY: str = os.getenv("NOTION_API_KEY", "")
+    NOTION_DATABASE_ID: str = os.getenv("NOTION_DATABASE_ID", "")
+
 
 settings = Settings()

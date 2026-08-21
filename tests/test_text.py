@@ -1,4 +1,4 @@
-from backend.utils.text import clean_text
+from backend.utils.text import clean_text, strip_thinking
 from backend.llm.stt import _fuzzy_correct, _apply_corrections
 
 
@@ -24,6 +24,17 @@ class TestCleanText:
     def test_empty_string(self):
         assert clean_text("") == ""
         assert clean_text(None) == ""
+
+
+class TestStripThinking:
+    def test_strips_closed_think_block(self):
+        assert strip_thinking("<think>reasoning</think>\n\nanswer") == "answer"
+
+    def test_strips_unclosed_think_block(self):
+        assert strip_thinking("<think>reasoning without closing tag\nsome answer") == ""
+
+    def test_clean_text_strips_unclosed_think(self):
+        assert clean_text("<think>reasoning without closing tag") == ""
 
 
 class TestSttCorrections:

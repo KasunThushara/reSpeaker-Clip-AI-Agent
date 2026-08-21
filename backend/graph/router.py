@@ -19,9 +19,12 @@ simple:
 - No external tools or special personality required
 
 context:
-- Questions that may require external information
-- Questions that may eventually require tools, search, database access,
-  device information, or other contextual information
+- Questions that may require external information or tools
+- Requests to create, update, or manage data in external tools such as
+  Notion (to-do lists, notes, databases), calendars, or any tool-based task
+- For example: "make a to-do list in Notion", "add a task", "create a note",
+  "what's on my calendar", "schedule something"
+- Questions about the user's device, files, or stored information
 
 persona:
 - The user explicitly requests a style, personality, teaching style,
@@ -37,9 +40,27 @@ User question:
 
 VALID_ROUTES = {"simple", "context", "persona"}
 
+TOOL_KEYWORDS = (
+    "notion",
+    "to-do",
+    "todo",
+    "task list",
+    "to do list",
+    "calendar",
+    "schedule",
+    "reminder",
+    "note down",
+    "create a task",
+    "add a task",
+)
+
 
 def router_node(state: AgentState) -> dict:
     question = state["transcript"]
+
+    if any(kw in question.lower() for kw in TOOL_KEYWORDS):
+        return {"route": "context"}
+
     result = llm.invoke(ROUTER_PROMPT + question)
     route = strip_thinking(result.content).strip().lower()
 

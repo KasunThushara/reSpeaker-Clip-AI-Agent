@@ -57,3 +57,16 @@ def get_conversation(conversation_id: str) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def get_recent_messages(conversation_id: str, limit: int = 10) -> list[dict]:
+    conn = sqlite3.connect(_db_path())
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT role, content FROM turns WHERE conversation_id = ? ORDER BY id DESC LIMIT ?",
+        (conversation_id, limit),
+    ).fetchall()
+    conn.close()
+    messages = [{"role": r["role"], "content": r["content"]} for r in rows]
+    messages.reverse()
+    return messages

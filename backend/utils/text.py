@@ -17,7 +17,25 @@ _EMOJI_PATTERN = re.compile(
 def strip_thinking(text: str) -> str:
     if not text:
         return ""
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<think>.*$", "", text, flags=re.DOTALL)
+    return text.strip()
+
+
+def extract_answer(text: str) -> str:
+    """Extract the model's answer, stripping reasoning.
+
+    Falls back to the last non-empty line when the thinking block is unclosed
+    or malformed (so the response is never silently emptied).
+    """
+    if not text:
+        return ""
+    stripped = strip_thinking(text)
+    if stripped:
+        return clean_text(stripped)
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    last = lines[-1] if lines else text.strip()
+    return clean_text(last)
 
 
 def clean_text(text: str) -> str:

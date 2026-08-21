@@ -67,7 +67,7 @@ class TestGraph:
 class TestAgent:
     def test_agent_uses_calculator(self):
         result = agentic_node(_make_state("what is 2300 multiplied by 4?"))
-        assert "9200" in result["response"]
+        assert "9200" in result["response"] or "9,200" in result["response"]
 
     def test_agent_responds(self):
         result = agentic_node(_make_state("what is 7 plus 8?"))

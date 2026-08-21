@@ -114,3 +114,107 @@ micBtn.addEventListener('touchend', (e) => {
     e.preventDefault();
     stopRecording();
 });
+
+// ---- Text chat (SSE) ----
+const textForm = document.getElementById('textForm');
+const textInput = document.getElementById('textInput');
+
+textForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = textInput.value.trim();
+    if (!text) return;
+    textInput.value = '';
+    sendTextChat(text);
+});
+
+function handleSseEvent(rawEvent) {
+    const lines = rawEvent.split('\n');
+    let event = 'message';
+    let dataStr = '';
+    for (const line of lines) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+    }
+    let data = {};
+    try { data = JSON.parse(dataStr); } catch (_) {}
+
+    if (event === 'thinking') {
+        setStatus('AI is using ' + (data.tool || 'a tool') + '...');
+    } else if (event === 'token') {
+        if (!currentAssistantMsg) {
+            currentAssistantMsg = document.createElement('div');
+            currentAssistantMsg.className = 'message assistant';
+            currentAssistantMsg.textContent = '';
+            chatBox.appendChild(currentAssistantMsg);
+        }
+        currentAssistantMsg.textContent += data.text || '';
+        chatBox.scrollTop = chatBox.scrollHeight;
+    } else if (event === 'done') {
+        if (currentAssistantMsg) {
+            currentAssistantMsg.textContent = data.response || currentAssistantMsg.textContent;
+            currentAssistantMsg = null;
+        } else if (data.response) {
+            addMessage('assistant', data.response);
+        }
+        if (data.conversation_id) conversationId = data.conversation_id;
+        if (data.response) {
+            playTts(data.response);
+        }
+        setStatus('Ready');
+    } else if (event === 'error') {
+        addMessage('assistant', 'Error: ' + (data.message || 'unknown error'));
+        setStatus('Error', true);
+    }
+}
+
+let currentAssistantMsg = null;
+
+async function sendTextChat(text) {
+    addMessage('user', text);
+    setStatus('Thinking...');
+
+    try {
+        const response = await fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, conversation_id: conversationId }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                const rawEvent = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 2);
+                handleSseEvent(rawEvent);
+            }
+        }
+    } catch (err) {
+        setStatus('Error: ' + err.message, true);
+        console.error(err);
+    }
+}
+
+async function playTts(text) {
+    try {
+        const resp = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+        });
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        audioPlayer.src = url;
+        audioPlayer.hidden = false;
+        audioPlayer.play();
+    } catch (err) {
+        console.error('TTS failed', err);
+    }
+}

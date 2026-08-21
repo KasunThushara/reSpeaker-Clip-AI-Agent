@@ -1,7 +1,8 @@
 from flask import Blueprint, request, Response
 from backend.llm import transcribe_bytes, synthesize
 from backend.graph import build_graph, AgentState
-from backend.database import create_conversation, save_turn
+from backend.database import create_conversation, save_turn, get_recent_messages
+from backend.memory import recall, save_exchange
 
 voice_bp = Blueprint("voice", __name__)
 _graph = None
@@ -40,11 +41,14 @@ def voice():
         "route": "",
         "response": "",
         "error": None,
+        "memories": recall(transcript),
+        "history": get_recent_messages(conversation_id, 10),
     }
     result = _get_graph().invoke(state)
 
     save_turn(conversation_id, "user", transcript)
     save_turn(conversation_id, "assistant", result["response"])
+    save_exchange(transcript, result["response"])
 
     tts_audio = synthesize(result["response"])
 

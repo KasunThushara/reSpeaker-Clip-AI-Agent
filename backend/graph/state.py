@@ -8,3 +8,5 @@ class AgentState(TypedDict):
     route: str
     response: str
     error: str | None
+    memories: list[str]
+    history: list[dict]

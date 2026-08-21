@@ -1,5 +1,12 @@
 import pytest
 from app import create_app
+from config import settings
+from backend.database import (
+    init_db,
+    create_conversation,
+    save_turn,
+    get_recent_messages,
+)
 
 
 @pytest.fixture
@@ -41,3 +48,25 @@ def test_chat_reuses_conversation(client):
     r = client.post("/api/chat", json={"text": "Second message", "conversation_id": cid})
     assert r.status_code == 200
     assert r.get_json()["conversation_id"] == cid
+
+
+def test_get_recent_messages_limits(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
+    init_db()
+    cid = create_conversation()
+    for i in range(15):
+        save_turn(cid, "user", f"u{i}")
+        save_turn(cid, "assistant", f"a{i}")
+
+    msgs = get_recent_messages(cid, 10)
+    assert len(msgs) == 10
+    assert msgs[0] == {"role": "user", "content": "u10"}
+    assert msgs[-1] == {"role": "assistant", "content": "a14"}
+    assert msgs[1] == {"role": "assistant", "content": "a10"}
+
+
+def test_get_recent_messages_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/empty.db")
+    init_db()
+    cid = create_conversation()
+    assert get_recent_messages(cid, 10) == []

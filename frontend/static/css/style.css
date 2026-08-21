@@ -121,3 +121,39 @@ h1 {
     width: 100%;
     margin-top: 8px;
 }
+
+.text-form {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.text-input {
+    flex: 1;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #333;
+    background: #16213e;
+    color: #eee;
+    font-size: 0.95rem;
+    outline: none;
+}
+
+.text-input:focus {
+    border-color: #e94560;
+}
+
+.send-btn {
+    padding: 0 18px;
+    border: none;
+    border-radius: 10px;
+    background: #e94560;
+    color: #fff;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.send-btn:hover {
+    background: #c23a51;
+}
