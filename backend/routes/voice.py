@@ -3,6 +3,7 @@ from backend.llm import transcribe_bytes, synthesize
 from backend.graph import build_graph, AgentState
 from backend.database import create_conversation, save_turn, get_recent_messages
 from backend.memory import recall, save_exchange
+from backend.services import index_conversation_async
 
 voice_bp = Blueprint("voice", __name__)
 _graph = None
@@ -49,6 +50,7 @@ def voice():
     save_turn(conversation_id, "user", transcript)
     save_turn(conversation_id, "assistant", result["response"])
     save_exchange(transcript, result["response"])
+    index_conversation_async(conversation_id)
 
     tts_audio = synthesize(result["response"])
 

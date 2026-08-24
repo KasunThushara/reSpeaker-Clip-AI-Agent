@@ -12,8 +12,9 @@ from backend.memory import format_memories
 
 SYSTEM_PROMPT = (
     "You are a helpful voice assistant with access to tools. "
-    "Use web_search for current, up-to-date information. "
+    "Use web_search for current, up-to-date web information. "
     "Use calculator for math. "
+    "Use search_conversations for questions about the user's own past conversations. "
     "Use Notion tools to manage the user's to-do list. "
     "Use the minimum number of tool calls needed; once you have enough information, "
     "answer immediately and do not call the same tool again. "

@@ -6,11 +6,17 @@ from backend.database import (
     create_conversation,
     save_turn,
     get_recent_messages,
+    save_conversation_summary,
+    get_conversation_summary,
+    get_conversations_by_ids,
 )
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "")
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/chat.db")
     app = create_app()
     return app.test_client()
 
@@ -51,6 +57,8 @@ def test_chat_reuses_conversation(client):
 
 
 def test_get_recent_messages_limits(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "")
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
     init_db()
     cid = create_conversation()
@@ -66,7 +74,39 @@ def test_get_recent_messages_limits(monkeypatch, tmp_path):
 
 
 def test_get_recent_messages_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "")
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/empty.db")
     init_db()
     cid = create_conversation()
     assert get_recent_messages(cid, 10) == []
+
+
+def test_conversation_summary_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "")
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/summary.db")
+    init_db()
+    cid = create_conversation()
+    assert get_conversation_summary(cid) is None
+    save_conversation_summary(cid, "USB Troubleshooting", "Fixed USB disconnects", "Check VL805")
+    summary = get_conversation_summary(cid)
+    assert summary["title"] == "USB Troubleshooting"
+    assert summary["overview"] == "Fixed USB disconnects"
+    assert summary["action_items"] == "Check VL805"
+
+
+def test_get_conversations_by_ids(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "")
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/byids.db")
+    init_db()
+    c1 = create_conversation()
+    c2 = create_conversation()
+    save_conversation_summary(c1, "Title One", "Overview One")
+    save_conversation_summary(c2, "Title Two", "Overview Two")
+    rows = get_conversations_by_ids([c1, c2])
+    assert len(rows) == 2
+    titles = {r["title"] for r in rows}
+    assert titles == {"Title One", "Title Two"}
+    assert get_conversations_by_ids([]) == []

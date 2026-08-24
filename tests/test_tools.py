@@ -7,6 +7,7 @@ from backend.tools.notion import (
     complete_todo,
     delete_todo,
 )
+from backend.tools.conversation_search import search_conversations
 from config import settings
 
 
@@ -60,3 +61,16 @@ class TestNotion:
         assert "to-do list" in list_todos.description
         assert "to-do list" in complete_todo.description
         assert "to-do list" in delete_todo.description
+
+
+class TestConversationSearch:
+    def test_returns_not_configured_without_key(self, monkeypatch):
+        monkeypatch.setattr(settings, "PINECONE_API_KEY", "")
+        result = search_conversations.invoke({"query": "usb"})
+        assert "not configured" in result
+
+    def test_tool_is_in_registry(self):
+        from backend.tools import get_available_tools
+
+        names = [t.name for t in get_available_tools()]
+        assert "search_conversations" in names

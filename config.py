@@ -29,5 +29,18 @@ class Settings:
     NOTION_API_KEY: str = os.getenv("NOTION_API_KEY", "")
     NOTION_DATABASE_ID: str = os.getenv("NOTION_DATABASE_ID", "")
 
+    USER_ID: str = os.getenv("USER_ID", "user-1")
+
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+
+    PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
+    PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "conversations")
+    PINECONE_CLOUD: str = os.getenv("PINECONE_CLOUD", "aws")
+    PINECONE_REGION: str = os.getenv("PINECONE_REGION", "us-east-1")
+
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    EMBEDDING_DIM: int = 384
+
 
 settings = Settings()

@@ -8,6 +8,7 @@ from backend.tools.notion import (
     complete_todo,
     delete_todo,
 )
+from backend.tools.conversation_search import search_conversations
 from backend.tools.registry import get_available_tools
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "list_todos",
     "complete_todo",
     "delete_todo",
+    "search_conversations",
     "get_available_tools",
 ]

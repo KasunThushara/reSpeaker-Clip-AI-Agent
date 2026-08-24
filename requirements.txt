@@ -8,4 +8,7 @@ langgraph-sdk==0.4.2
 python-dotenv==1.0.1
 tavily-python==0.7.27
 mem0ai==2.0.18
+sentence-transformers==6.0.0
+pinecone==9.1.0
+supabase==2.31.0
 pytest==8.3.2

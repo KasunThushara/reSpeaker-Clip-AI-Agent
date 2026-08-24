@@ -2,6 +2,7 @@ from flask import Flask, send_from_directory
 from flask_cors import CORS
 from backend.routes import register_routes
 from backend.database import init_db
+from backend.vector import init_index
 
 
 def create_app() -> Flask:
@@ -14,6 +15,7 @@ def create_app() -> Flask:
 
     register_routes(app)
     init_db()
+    init_index()
 
     @app.route("/")
     def index():

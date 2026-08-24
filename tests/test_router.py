@@ -23,7 +23,7 @@ class TestRouter:
         assert result["route"] == "simple"
 
     def test_classifies_context(self):
-        result = router_node(_make_state("what is the latest firmware version of XVF3800"))
+        result = router_node(_make_state("what is on my calendar tomorrow"))
         assert result["route"] == "context"
 
     def test_classifies_persona(self):
@@ -43,10 +43,8 @@ class TestGraph:
         assert len(result["response"]) > 0
 
     def test_routes_to_context_and_responds(self):
-        if not settings.TAVILY_API_KEY:
-            pytest.skip("TAVILY_API_KEY not configured")
         graph = build_graph()
-        result = graph.invoke(_make_state("what is the latest firmware version of XVF3800"))
+        result = graph.invoke(_make_state("what is on my calendar tomorrow"))
         assert result["route"] == "context"
         assert len(result["response"]) > 0
 

@@ -6,6 +6,7 @@ from backend.graph import build_graph, AgentState
 from backend.graph.router import router_node
 from backend.database import create_conversation, save_turn, get_recent_messages
 from backend.memory import recall, save_exchange, format_memories
+from backend.services import index_conversation_async
 from backend.utils.text import extract_answer, strip_thinking
 
 chat_bp = Blueprint("chat", __name__)
@@ -50,6 +51,7 @@ def chat():
     save_turn(conversation_id, "user", text)
     save_turn(conversation_id, "assistant", result["response"])
     save_exchange(text, result["response"])
+    index_conversation_async(conversation_id)
 
     return jsonify({
         "response": result["response"],
@@ -92,6 +94,7 @@ def _stream_simple_or_persona(text, memories, history, conversation_id, persona:
     save_turn(conversation_id, "user", text)
     save_turn(conversation_id, "assistant", response)
     save_exchange(text, response)
+    index_conversation_async(conversation_id)
 
 
 def _stream_agent(text, memories, history, conversation_id):
@@ -127,6 +130,7 @@ def _stream_agent(text, memories, history, conversation_id):
     save_turn(conversation_id, "user", text)
     save_turn(conversation_id, "assistant", response)
     save_exchange(text, response)
+    index_conversation_async(conversation_id)
 
 
 @chat_bp.route("/chat/stream", methods=["POST"])
