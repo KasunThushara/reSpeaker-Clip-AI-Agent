@@ -48,12 +48,36 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
                    ▼
                 response
                    │
-        ┌──────────┴──────────┐
-        ▼                     ▼
-   TTS (audio)           SSE (text)
+         ┌──────────┴──────────┐
+         ▼                     ▼
+    TTS (audio)           SSE (text)
+```
+
+### Conversation vector search flow
+
+When you ask a question about a past conversation, the agent calls the `search_conversations` tool, which embeds the query, finds matching conversations in Pinecone, and pulls their summaries from Supabase:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant LLM as 🤖 LLM Agent
+    participant VST as 🔧 Vector Search Tool
+    participant EMB as 🧠 Local Embeddings (sentence-transformers)
+    participant PC as 🌲 Pinecone
+    participant DB as 🗄️ Supabase (SQLite fallback)
+
+    LLM->>VST: search_conversations(query)
+    VST->>EMB: embed_text("John project discussion")
+    EMB-->>VST: [0.012, -0.034, 0.056, ...] (384 dims)
+    VST->>PC: query(vector, filter={user_id})
+    PC-->>VST: [conv_id_456, conv_id_789] ranked by similarity
+    VST->>DB: get_conversations_by_ids(ids)
+    DB-->>VST: Conversation summaries (title + overview)
+    VST-->>LLM: Formatted context
 ```
 
 ## Tech stack
+
 
 | Area              | Technology                                  |
 | ----------------- | ------------------------------------------- |
