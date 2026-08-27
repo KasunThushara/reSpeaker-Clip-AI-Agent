@@ -27,6 +27,17 @@ from backend.tools.shopify import (
     shopify_get_order,
     _shop_domain_endpoint,
 )
+from backend.tools.gmail import (
+    gmail_search_messages,
+    gmail_get_message,
+    gmail_create_draft,
+    gmail_send_message,
+    gmail_list_labels,
+    _compact_message,
+    _decode_data,
+    _build_raw,
+    _reset_service,
+)
 from config import settings
 
 
@@ -253,5 +264,85 @@ class TestShopifyCartAndOrder:
             "shopify_update_cart",
             "shopify_cancel_cart",
             "shopify_get_order",
+        ):
+            assert expected in names
+
+
+class TestGmail:
+    def test_tools_are_defined(self):
+        assert gmail_search_messages.name == "gmail_search_messages"
+        assert gmail_get_message.name == "gmail_get_message"
+        assert gmail_create_draft.name == "gmail_create_draft"
+        assert gmail_send_message.name == "gmail_send_message"
+        assert gmail_list_labels.name == "gmail_list_labels"
+
+    def test_unauthorized_returns_message(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_service()
+        for tool_fn, args in (
+            (gmail_search_messages, {"query": "test"}),
+            (gmail_get_message, {"message_id": "abc123"}),
+            (gmail_create_draft, {"to": "a@b.com", "subject": "s", "body": "b"}),
+            (gmail_send_message, {"to": "a@b.com", "subject": "s", "body": "b"}),
+            (gmail_list_labels, {}),
+        ):
+            result = tool_fn.invoke(args)
+            assert "unavailable" in result
+
+    def test_get_message_requires_id(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_service()
+        assert "required" in gmail_get_message.invoke({"message_id": "  "})
+
+    def test_draft_requires_fields(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_service()
+        result = gmail_create_draft.invoke({"to": "", "subject": "s", "body": "b"})
+        assert "required" in result
+
+    def test_decode_data_handles_missing_padding(self):
+        # "Hello" encoded as base64url without padding
+        assert _decode_data("SGVsbG8") == "Hello"
+
+    def test_compact_message_keeps_key_fields(self):
+        msg = {
+            "id": "msg1",
+            "threadId": "t1",
+            "snippet": "short snippet",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "alice@example.com"},
+                    {"name": "Subject", "value": "Hello"},
+                    {"name": "Date", "value": "Mon, 1 Jan 2026 10:00:00 +0000"},
+                ],
+                "mimeType": "text/plain",
+                "body": {"data": "SGVsbG8"},
+            },
+        }
+        compact = _compact_message(msg, body_chars=100)
+        assert compact["from"] == "alice@example.com"
+        assert compact["subject"] == "Hello"
+        assert compact["body"] == "Hello"
+        assert "snippet" in compact
+
+    def test_build_raw_encodes_message(self):
+        import base64
+
+        raw = _build_raw("bob@example.com", "Hi", "Body text")
+        decoded = base64.urlsafe_b64decode(raw).decode()
+        assert "bob@example.com" in decoded
+        assert "Hi" in decoded
+        assert "Body text" in decoded
+
+    def test_gmail_tools_are_registered(self):
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        for expected in (
+            "gmail_search_messages",
+            "gmail_get_message",
+            "gmail_create_draft",
+            "gmail_send_message",
+            "gmail_list_labels",
         ):
             assert expected in names

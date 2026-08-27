@@ -19,6 +19,13 @@ from backend.tools.shopify import (
     shopify_cancel_cart,
     shopify_get_order,
 )
+from backend.tools.gmail import (
+    gmail_search_messages,
+    gmail_get_message,
+    gmail_create_draft,
+    gmail_send_message,
+    gmail_list_labels,
+)
 
 
 def get_available_tools() -> list:
@@ -40,5 +47,12 @@ def get_available_tools() -> list:
         shopify_update_cart,
         shopify_cancel_cart,
         shopify_get_order,
+    ])
+    tools.extend([
+        gmail_search_messages,
+        gmail_get_message,
+        gmail_create_draft,
+        gmail_send_message,
+        gmail_list_labels,
     ])
     return tools
