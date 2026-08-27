@@ -33,6 +33,8 @@ class Settings:
     CLIP_MAX_FAILED_ARTIFACTS: int = int(os.getenv("CLIP_MAX_FAILED_ARTIFACTS", "5"))
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
 
+    FMP_API_KEY: str = os.getenv("FMP_API_KEY", "")
+
     SHOPIFY_ACCESS_TOKEN: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
     SHOPIFY_AGENT_PROFILE: str = os.getenv(
         "SHOPIFY_AGENT_PROFILE",

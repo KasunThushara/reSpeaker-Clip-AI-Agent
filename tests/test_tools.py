@@ -8,6 +8,15 @@ from backend.tools.notion import (
     delete_todo,
 )
 from backend.tools.conversation_search import search_conversations
+from backend.tools.finance import (
+    finance_search_symbol,
+    finance_get_quote,
+    finance_get_profile,
+    finance_get_income_statement,
+    finance_get_news,
+    _fmt,
+    _compact_quote,
+)
 from backend.tools.shopify import (
     shopify_search_catalog,
     shopify_lookup_catalog,
@@ -84,6 +93,78 @@ class TestConversationSearch:
 
         names = [t.name for t in get_available_tools()]
         assert "search_conversations" in names
+
+
+class TestFinance:
+    def test_tools_are_defined(self):
+        assert finance_search_symbol.name == "finance_search_symbol"
+        assert finance_get_quote.name == "finance_get_quote"
+        assert finance_get_profile.name == "finance_get_profile"
+        assert finance_get_income_statement.name == "finance_get_income_statement"
+        assert finance_get_news.name == "finance_get_news"
+
+    def test_unconfigured_returns_message(self, monkeypatch):
+        monkeypatch.setattr(settings, "FMP_API_KEY", "")
+        for tool_fn in (
+            finance_search_symbol,
+            finance_get_quote,
+            finance_get_profile,
+            finance_get_income_statement,
+            finance_get_news,
+        ):
+            result = tool_fn.invoke({"symbol": "AAPL"} if "query" not in tool_fn.args else {"query": "Apple"})
+            assert "not configured" in result
+
+    def test_income_statement_validates_period(self, monkeypatch):
+        monkeypatch.setattr(settings, "FMP_API_KEY", "test-key")
+        result = finance_get_income_statement.invoke(
+            {"symbol": "AAPL", "period": "monthly"}
+        )
+        assert "annual" in result
+
+    def test_fmt_compact_numbers(self):
+        assert _fmt(3_450_000_000_000) == "3.45T"
+        assert _fmt(12_500_000_000) == "12.50B"
+        assert _fmt(2_000_000) == "2.00M"
+        assert _fmt(3.5) == "3.5"
+        assert _fmt(42) == "42"
+
+    def test_compact_quote_keeps_key_fields(self):
+        q = _compact_quote(
+            {
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "price": 227.5,
+                "change": 1.2,
+                "changesPercentage": 0.53,
+                "dayLow": 225.0,
+                "dayHigh": 228.0,
+                "previousClose": 226.3,
+                "volume": 50_000_000,
+                "marketCap": 3_450_000_000_000,
+                "currency": "USD",
+                "exchange": "NASDAQ",
+                "unwantedField": "dropped",
+            }
+        )
+        assert q["symbol"] == "AAPL"
+        assert q["change_percent"] == 0.53
+        assert q["volume"] == "50.00M"
+        assert q["market_cap"] == "3.45T"
+        assert "unwantedField" not in q
+
+    def test_finance_tools_are_registered(self):
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        for expected in (
+            "finance_search_symbol",
+            "finance_get_quote",
+            "finance_get_profile",
+            "finance_get_income_statement",
+            "finance_get_news",
+        ):
+            assert expected in names
 
 
 class TestShopify:
