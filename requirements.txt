@@ -1,5 +1,6 @@
 Flask==3.0.3
 flask-cors==6.0.5
+httpx==0.28.1
 groq==0.37.1
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0

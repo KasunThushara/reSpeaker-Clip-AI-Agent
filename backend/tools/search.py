@@ -9,7 +9,10 @@ MAX_RESULT_CHARS = 300
 def web_search(query: str) -> str:
     """Search the web for current, up-to-date information. Use this for
     questions about the latest firmware, recent news, product details, or
-    anything that requires live facts not in the model's training data."""
+    anything that requires live facts not in the model's training data.
+    For product shopping or buying, prefer shopify_search_catalog instead.
+    When citing a URL, use the exact url field from the results below; never
+    construct or guess URLs yourself."""
     if not settings.TAVILY_API_KEY:
         return "Web search is unavailable: TAVILY_API_KEY is not configured."
 

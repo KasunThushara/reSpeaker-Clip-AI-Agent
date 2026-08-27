@@ -9,7 +9,7 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
 - **Voice in / voice out** — Groq Whisper (STT) + Groq Orpheus (TTS)
 - **Text chat with SSE streaming** — tokens stream live, then the answer is spoken (TTS)
 - **LangGraph router** — three branches: `simple`, `agentic` (tools), `persona`
-- **Tools**: web search (Tavily), calculator, Notion to-do list, conversation vector search (Pinecone)
+- **Tools**: web search (Tavily), calculator, Shopify Global Catalog, Notion to-do list, conversation vector search (Pinecone)
 - **Long-term memory** — Mem0 (proactive recall + post-turn extraction)
 - **Conversation history** — last 10 turns per conversation
 - **Storage**: Supabase PostgreSQL (with a SQLite fallback for development/tests)
@@ -101,6 +101,7 @@ sequenceDiagram
   - **Notion** — to-do list tool
   - **Supabase** — conversation storage (falls back to SQLite)
   - **Pinecone** — conversation vector search
+  - **Shopify** — Global Catalog MCP product discovery and lookup
 
 ## Quick start
 
@@ -142,6 +143,8 @@ Copy `.env.example` to `.env` and fill in the values. Only `GROQ_API_KEY` is str
 | `STT_LANGUAGE`          | `en`                       | STT language                         |
 | `DATABASE_URL`          | `sqlite:///chat.db`        | SQLite fallback DB path              |
 | `TAVILY_API_KEY`        | —                          | Web search tool                      |
+| `SHOPIFY_ACCESS_TOKEN`  | —                          | Optional Shopify buyer-linked token |
+| `SHOPIFY_AGENT_PROFILE` | Shopify example profile   | UCP agent profile URL                |
 | `MEM0_API_KEY`          | —                          | Long-term memory                     |
 | `MEM0_USER_ID`          | `user-1`                   | Mem0 memory scope                    |
 | `NOTION_API_KEY`        | —                          | Notion to-do tool                    |

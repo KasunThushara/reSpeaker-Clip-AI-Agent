@@ -9,6 +9,11 @@ from backend.tools.notion import (
     delete_todo,
 )
 from backend.tools.conversation_search import search_conversations
+from backend.tools.shopify import (
+    shopify_search_catalog,
+    shopify_lookup_catalog,
+    shopify_get_product,
+)
 from backend.tools.registry import get_available_tools
 
 __all__ = [
@@ -21,5 +26,8 @@ __all__ = [
     "complete_todo",
     "delete_todo",
     "search_conversations",
+    "shopify_search_catalog",
+    "shopify_lookup_catalog",
+    "shopify_get_product",
     "get_available_tools",
 ]

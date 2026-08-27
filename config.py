@@ -23,6 +23,14 @@ class Settings:
 
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
 
+    SHOPIFY_ACCESS_TOKEN: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+    SHOPIFY_AGENT_PROFILE: str = os.getenv(
+        "SHOPIFY_AGENT_PROFILE",
+        "https://shopify.dev/ucp/agent-profiles/examples/2026-04-08/valid-with-capabilities.json",
+    )
+    SHOPIFY_CLIENT_ID: str = os.getenv("SHOPIFY_CLIENT_ID", "")
+    SHOPIFY_CLIENT_SECRET: str = os.getenv("SHOPIFY_CLIENT_SECRET", "")
+
     MEM0_API_KEY: str = os.getenv("MEM0_API_KEY", "")
     MEM0_USER_ID: str = os.getenv("MEM0_USER_ID", "user-1")
 
