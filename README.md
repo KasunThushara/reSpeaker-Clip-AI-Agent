@@ -53,6 +53,26 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
     TTS (audio)           SSE (text)
 ```
 
+### reSpeaker Clip audio input
+
+The browser can be replaced (or complemented) by a **reSpeaker Clip** worn device. A
+`ClipRuntime` runs on a dedicated asyncio daemon thread inside Flask and owns exactly
+**one long-lived BLE connection** to the Clip:
+
+- A background supervisor connects by `CLIP_BLE_ADDRESS` (or scans `CLIP_BLE_NAME`),
+  sends a status heartbeat every `CLIP_STATUS_INTERVAL`, and reconnects with
+  1/2/4/8/16/30 s jittered backoff. Only the supervisor connects/reconnects.
+- Firmware `state` events and GSTAT polling reconcile to one recording state, so a
+  physical button press or a missed event during a disconnect is still handled.
+- A stopped session automatically enters an **ingestion workflow**:
+  `download (Ogg .opus packets) → re-container to one Ogg Opus file → Groq Whisper →
+  shared LangGraph pipeline`. Progress is persisted in a `clip_ingestions` table
+  (SQLite and/or Supabase) keyed by `(device_id, session_id)`; repeated events and
+  HTTP retries never duplicate work, and the very first integration baseline marks
+  pre-existing device sessions `ignored_existing`.
+- The shared `AudioService` processes both browser bytes (`POST /api/voice`) and Clip
+  Ogg files so STT → LangGraph → persistence/memory → TTS is identical for each.
+
 ### Conversation vector search flow
 
 When you ask a question about a past conversation, the agent calls the `search_conversations` tool, which embeds the query, finds matching conversations in Pinecone, and pulls their summaries from Supabase:
@@ -95,6 +115,7 @@ sequenceDiagram
 
 - Python 3.10+
 - A **Groq API key** (required — powers LLM, STT, TTS)
+- **reSpeaker Clip** (optional but recommended voice input). The `respeaker-clip-sdk[ble]` package (with `bleak`) is pinned in `requirements.txt` from the Seeed repo commit `93f86674a...`; BLE needs a Linux/Windows host with Bluetooth (bluez on Linux).
 - Optional API keys (each feature degrades gracefully if missing):
   - **Tavily** — web search tool
   - **Mem0** — long-term memory
@@ -125,7 +146,13 @@ cp .env.example .env          # then fill in your keys (see Configuration)
 python app.py
 ```
 
-Open http://localhost:5000 — use the mic button (hold to speak) or the text box (the answer streams, then plays as audio).
+Open http://localhost:5000. The input depends on `VOICE_INPUT_MODE`:
+
+- **`both`** (default, development) — manual selector between **reSpeaker Clip** and the browser mic.
+- **`clip`** (production) — Clip only; no `getUserMedia`, the web button calls the Clip start/stop APIs and the Clip physical button works the same way.
+- **`browser`** — legacy system-mic push-to-talk only.
+
+The Clip web button is click-to-toggle (click once to start, click again to stop), the physical button starts/stops recordings too, and both render the transcript/answer and play the reply through `/api/tts`. Clip control is disabled while the device is offline or a session is being processed.
 
 ## Configuration
 
@@ -156,12 +183,20 @@ Copy `.env.example` to `.env` and fill in the values. Only `GROQ_API_KEY` is str
 | `PINECONE_INDEX_NAME`   | `conversations`            | Pinecone index name                  |
 | `PINECONE_REGION`       | `us-east-1`                | Pinecone serverless region           |
 | `EMBEDDING_MODEL`       | `all-MiniLM-L6-v2`         | Local embedding model                |
+| `VOICE_INPUT_MODE`      | `both`                     | `clip` / `both` / `browser`          |
+| `CLIP_BLE_ADDRESS`      | —                          | Clip BLE address (else scan by name) |
+| `CLIP_BLE_NAME`         | `Clip`                     | BLE name substring to scan for       |
+| `CLIP_RECORD_MODE`      | `enhanced`                 | `normal` or `enhanced`               |
+| `CLIP_STATUS_INTERVAL`  | `5`                        | Status heartbeat seconds             |
+| `CLIP_DOWNLOAD_TIMEOUT` | `300`                      | Per-session download timeout (s)     |
+| `CLIP_TEMP_DIR`         | `clip_audio`               | Local temp audio dir                 |
+| `CLIP_MAX_FAILED_ARTIFACTS` | `5`                   | Bounded failed-artifact retention    |
 
 ### Optional one-time setup
 
 **Supabase (conversation storage):**
 1. Create a Supabase project, copy `SUPABASE_URL` + the service-role key into `.env`.
-2. Open the **SQL Editor** and run the schema in `supabase_schema.sql` (creates `users`, `conversations`, `messages` and seeds `user-1`).
+2. Open the **SQL Editor** and run `supabase_schema.sql` (creates the conversation tables plus `clip_ingestions`/`clip_device_state`, and seeds `user-1`).
 
 If Supabase is not configured, the app falls back to SQLite (`chat.db`).
 
@@ -185,6 +220,24 @@ Paste your key into `.env`. On startup the app auto-creates the `conversations` 
 | POST   | `/api/chat/stream`| Text chat → SSE (`thinking`, `token`, `done`)      |
 | POST   | `/api/voice`      | Audio → STT → chat → TTS → `audio/wav`             |
 | POST   | `/api/tts`        | `{text}` → `audio/wav`                             |
+| GET    | `/api/clip/status`| Clip connection/recording status                   |
+| GET    | `/api/clip/events`| SSE: `connection`, `recording`, `workflow`, `result`|
+| POST   | `/api/clip/recordings/start` | `{mode?, conversation_id?}` start recording |
+| POST   | `/api/clip/recordings/stop`  | Stop, returns accepted/session workflow data |
+| POST   | `/api/clip/sessions/<session_id>/ingest` | Idempotent retry/enqueue of a session |
+| POST   | `/api/clip/context`| `{conversation_id}` register the active conversation |
+
+Clip error mapping: `400` bad input, `409` state conflict (e.g. already recording),
+`502` command/transfer failure, `503` device unavailable / reconnecting.
+
+Clip SSE events:
+
+```
+event: connection  data: {"connected": true, "status": {...}}
+event: recording   data: {"action": "started|stopped", "session": "...", "trigger": "web|physical"}
+event: workflow    data: {"status": "stopped|downloading|processing|failed", "session": "..."}
+event: result      data: {"session": "...", "conversation_id": "...", "transcript": "...", "response": "..."}
+```
 
 SSE event format:
 
@@ -199,6 +252,13 @@ event: done       data: {"response": "...", "conversation_id": "..."}
 ```bash
 pytest
 ```
+
+Clip-related tests use a fake BLE transport / fake worker and a local SQLite
+database — no real hardware or BLE is required. They cover serialized command
+lifecycle, timeout-then-reconnect, backoff, no heartbeat during download, web
+START/STOP, physical state events, reconnect reconciliation, first-start baseline,
+idempotent ingestion, raw Opus→Ogg fixtures (including corrupt/truncated input), and
+API status/error mappings.
 
 Tests use the SQLite fallback, so no external services are needed to run them.
 
@@ -263,13 +323,46 @@ backend/
 
 The agent (Groq `gpt-oss-20b` or whichever `GROQ_AGENT_MODEL`) then decides autonomously when to use it.
 
+## reSpeaker Clip integration guide
+
+**BLE prerequisites (Linux):** install BlueZ (`sudo apt install bluez bluetooth`), make
+sure the adapter is up (`bluetoothctl power on`), and confirm the Clip is pairable /
+visible. On first boot of a Clip, long-press to enter BLE pairing if needed.
+
+**Fixed SDK pin:** `requirements.txt` installs `respeaker-clip-sdk[ble]` from
+`github.com/Seeed-Studio/reSpeaker_Clip` at commit `93f86674a280b3325dd37a152d9b80d02857b049`
+(`subdirectory=sdk`). The runtime uses only the current API
+(`clip.ClipClient` + `clip.BleTransport`); legacy `ClipDevice` APIs are not used.
+
+**One process / one worker — keep the Flask reloader off.** The runtime owns a single
+long-lived BLE connection per physical device plus one reconnect supervisor. `app.py`
+runs with `use_reloader=False`; do not run multiple workers/processes that each create
+a Clip connection to the same device. In development this means starting with
+`python app.py` rather than a reloader-enabled flask command.
+
+**Ergonomics around the protocol:**
+- Commands are serialized; after a command timeout/protocol/connection failure the
+  runtime disconnects and the supervisor recreates the connection before any next command.
+- The heartbeat never issues commands while a download holds the operation lock.
+- Downloads write `.part`, validate size/CRC32, and atomically publish (SDK behavior).
+- Downloaded `NNNN.opus` files are `[u16le length][raw Opus frame]` packets — the
+  project-local `backend.clip.ogg` module re-containers them into one valid Ogg Opus
+  file (with session `sample_rate_hz`/`channels`) before Groq STT. Groq accepts `.ogg`.
+- Only BLE control/downloads are used (no Wi-Fi handoff); device sessions are never
+  deleted; successful temp audio is removed, failed artifacts are retained with bounded
+  cleanup (`CLIP_MAX_FAILED_ARTIFACTS`).
+
+**Input modes for deployment:** set `VOICE_INPUT_MODE=clip` in production so the
+selector is hidden and no `getUserMedia` call is made; keep `both` for development.
+
 ## How the voice pipeline works
 
 ```
-mic → WebM audio → POST /api/voice
-  → Groq Whisper (STT) → transcript
-  → recall relevant Mem0 memories → LangGraph (router → node)
-  → Groq LLM → response
-  → save turn + memory + async vector index
-  → Groq Orpheus (TTS) → audio/wav → browser speaker
+browser mic → WebM audio → POST /api/voice        ┐
+                                                  ├─→ shared AudioService
+Clip session (physical button or web click-to-toggle)│   (transcript → LangGraph
+  → event/stop → download .opus → re-container    │    → response → save turn
+  → Groq Whisper (STT)                             │    → memory → async index)
+  → same AudioService pipeline                     ┘
+  → Groq Orpheus (TTS) → audio/wav → browser speaker  (or /api/tts from result event)
 ```

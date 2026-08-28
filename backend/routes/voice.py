@@ -1,12 +1,17 @@
 from flask import Blueprint, request, Response
-from backend.llm import transcribe_bytes, synthesize
-from backend.graph import build_graph, AgentState
-from backend.database import create_conversation, save_turn, get_recent_messages
-from backend.memory import recall, save_exchange
-from backend.services import index_conversation_async
+
+from backend.llm import synthesize
+from backend.services.audio_service import AudioService
 
 voice_bp = Blueprint("voice", __name__)
-_graph = None
+_service = None
+
+
+def _get_service():
+    global _service
+    if _service is None:
+        _service = AudioService()
+    return _service
 
 
 def _header_safe(text: str) -> str:
@@ -18,48 +23,29 @@ def _header_safe(text: str) -> str:
     )
 
 
-def _get_graph():
-    global _graph
-    if _graph is None:
-        _graph = build_graph()
-    return _graph
-
-
 @voice_bp.route("/voice", methods=["POST"])
 def voice():
     if "audio" not in request.files:
         return {"error": "Missing 'audio' file"}, 400
 
     audio_file = request.files["audio"]
-    conversation_id = request.form.get("conversation_id") or create_conversation()
+    conversation_id = request.form.get("conversation_id") or None
 
     audio_bytes = audio_file.read()
-    transcript = transcribe_bytes(audio_bytes, audio_file.filename or "audio.wav")
+    outcome = _get_service().process_audio(
+        audio_bytes,
+        audio_file.filename or "audio.wav",
+        conversation_id,
+    )
 
-    state: AgentState = {
-        "messages": [],
-        "transcript": transcript,
-        "route": "",
-        "response": "",
-        "error": None,
-        "memories": recall(transcript),
-        "history": get_recent_messages(conversation_id, 10),
-    }
-    result = _get_graph().invoke(state)
-
-    save_turn(conversation_id, "user", transcript)
-    save_turn(conversation_id, "assistant", result["response"])
-    save_exchange(transcript, result["response"])
-    index_conversation_async(conversation_id)
-
-    tts_audio = synthesize(result["response"])
+    tts_audio = synthesize(outcome["response"])
 
     return Response(
         tts_audio,
         mimetype="audio/wav",
         headers={
-            "X-Transcript": _header_safe(transcript),
-            "X-Response": _header_safe(result["response"]),
-            "X-Conversation-Id": conversation_id,
+            "X-Transcript": _header_safe(outcome["transcript"]),
+            "X-Response": _header_safe(outcome["response"]),
+            "X-Conversation-Id": outcome["conversation_id"],
         },
     )

@@ -13,3 +13,6 @@ sentence-transformers==6.0.0
 pinecone==9.1.0
 supabase==2.31.0
 pytest==8.3.2
+
+# reSpeaker Clip BLE integration (pinned SDK commit; subdirectory=sdk)
+respeaker-clip-sdk[ble] @ git+https://github.com/Seeed-Studio/reSpeaker_Clip.git@93f86674a280b3325dd37a152d9b80d02857b049#subdirectory=sdk

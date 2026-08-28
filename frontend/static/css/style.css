@@ -157,3 +157,77 @@ h1 {
 .send-btn:hover {
     background: #c23a51;
 }
+
+/* ---- reSpeaker Clip controls ---- */
+
+.btn-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+}
+
+.clip-btn {
+    background: #2e7d32;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: none;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+    touch-action: none;
+    user-select: none;
+}
+
+.clip-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(46, 125, 50, 0.4);
+}
+
+.clip-btn.recording {
+    background: #ff1744;
+    transform: scale(1.1);
+    box-shadow: 0 0 30px rgba(255, 23, 68, 0.6);
+    animation: pulse 1s infinite;
+}
+
+.clip-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    animation: none;
+}
+
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: #888;
+}
+
+.input-row select {
+    background: #16213e;
+    color: #eee;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+}
+
+#clipStatusLine {
+    font-size: 0.78rem;
+    color: #6a9fb5;
+    min-height: 1.1em;
+}
+
+#clipStatusLine.error {
+    color: #e94560;
+}

@@ -9,18 +9,33 @@
 <body>
     <div class="container">
         <h1>Voice Assistant</h1>
+        <script id="clip-config" type="application/json">{{ clip_config | tojson }}</script>
 
         <div class="chat-box" id="chatBox">
             <div class="message system">Click the mic to start speaking</div>
         </div>
 
         <div class="controls">
-            <button id="micBtn" class="mic-btn" title="Hold to speak">
-                <svg id="micIcon" viewBox="0 0 24 24" width="32" height="32">
-                    <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                    <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                </svg>
-            </button>
+            <div class="input-row" id="inputModeRow" hidden>
+                <label for="inputModeSelect">Input</label>
+                <select id="inputModeSelect">
+                    <option value="clip">reSpeaker Clip</option>
+                    <option value="browser">Browser mic</option>
+                </select>
+            </div>
+
+            <div class="btn-row">
+                <button id="micBtn" class="mic-btn" title="Hold to speak">
+                    <svg viewBox="0 0 24 24" width="32" height="32">
+                        <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                </button>
+                <button id="clipBtn" class="mic-btn clip-btn" title="Click to start or stop reSpeaker Clip recording" hidden>
+                    <span id="clipBtnLabel">Clip</span>
+                </button>
+            </div>
+            <div class="status" id="clipStatusLine"></div>
             <div class="status" id="status">Ready</div>
         </div>
 

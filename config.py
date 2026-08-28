@@ -21,6 +21,16 @@ class Settings:
     STT_PROMPT: str = os.getenv("STT_PROMPT", "")
     STT_LANGUAGE: str = os.getenv("STT_LANGUAGE", "en")
 
+
+    # --- reSpeaker Clip input ---
+    VOICE_INPUT_MODE: str = os.getenv("VOICE_INPUT_MODE", "both")
+    CLIP_BLE_ADDRESS: str = os.getenv("CLIP_BLE_ADDRESS", "")
+    CLIP_BLE_NAME: str = os.getenv("CLIP_BLE_NAME", "Clip")
+    CLIP_RECORD_MODE: str = os.getenv("CLIP_RECORD_MODE", "enhanced")
+    CLIP_STATUS_INTERVAL: int = int(os.getenv("CLIP_STATUS_INTERVAL", "5"))
+    CLIP_DOWNLOAD_TIMEOUT: int = int(os.getenv("CLIP_DOWNLOAD_TIMEOUT", "300"))
+    CLIP_TEMP_DIR: str = os.getenv("CLIP_TEMP_DIR", "clip_audio")
+    CLIP_MAX_FAILED_ARTIFACTS: int = int(os.getenv("CLIP_MAX_FAILED_ARTIFACTS", "5"))
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
 
     SHOPIFY_ACCESS_TOKEN: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")

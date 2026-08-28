@@ -53,6 +53,15 @@
     TTS（音频）           SSE（文本）
 ```
 
+### reSpeaker Clip 音频输入
+
+可以用佩戴式 **reSpeaker Clip** 替代（或补充）浏览器麦克风。`ClipRuntime` 运行在 Flask 内部一个独立的 asyncio 守护线程中，并且对每台物理设备**只维护一条长期 BLE 连接**：
+
+- 后台监督器按 `CLIP_BLE_ADDRESS` 连接（否则按 `CLIP_BLE_NAME` 扫描），每个 `CLIP_STATUS_INTERVAL` 发送一次状态心跳，并以 1/2/4/8/16/30 秒加抖动的退避机制重连。只有监督器负责连接/重连。
+- 固件 `state` 事件与 GSTAT 轮询会收敛到同一个录音状态，因此物理按键或断连期间错过的事件也能被正确处理。
+- 停止的会话会自动进入**摄取工作流**：`下载（Ogg .opus 包）→ 重封装为单个 Ogg Opus 文件 → Groq Whisper → 共享 LangGraph 流水线`。进度持久化在 `clip_ingestions` 表（SQLite 和/或 Supabase）中，键为 `(device_id, session_id)`；重复事件和 HTTP 重试不会重复处理；首次接入基线会把设备上已有会话标记为 `ignored_existing`。
+- 共享的 `AudioService` 同时处理浏览器字节（`POST /api/voice`）和 Clip 的 Ogg 文件，确保 STT → LangGraph → 持久化/记忆 → TTS 完全一致。
+
 ### 对话向量搜索流程
 
 当你询问关于过去对话的问题时，智能体会调用 `search_conversations` 工具，该工具会对查询进行向量化，在 Pinecone 中查找匹配的对话，并从 Supabase 中提取其摘要：
@@ -95,6 +104,7 @@ sequenceDiagram
 
 - Python 3.10+
 - **Groq API 密钥**（必需 — 驱动 LLM、STT、TTS）
+- **reSpeaker Clip**（可选但推荐的语音输入）。`requirements.txt` 中固定安装了来自 Seeed 仓库提交 `93f86674a...` 的 `respeaker-clip-sdk[ble]`（含 `bleak`）；BLE 需要 Linux/Windows 主机（Linux 需 bluez）。
 - 可选 API 密钥（每个功能在缺失时会优雅降级）：
   - **Tavily** — 网页搜索工具
   - **Mem0** — 长期记忆
@@ -125,7 +135,13 @@ cp .env.example .env          # 然后填入你的密钥（见配置说明）
 python app.py
 ```
 
-打开 http://localhost:5000 — 使用麦克风按钮（按住说话）或文本框（回答会流式传输，然后以音频播放）。
+打开 http://localhost:5000。输入方式取决于 `VOICE_INPUT_MODE`：
+
+- **`both`**（默认，开发模式）— 手动在 **reSpeaker Clip** 与浏览器麦克风之间选择。
+- **`clip`**（生产模式）— 仅 Clip；不调用 `getUserMedia`，网页按钮调用 Clip 的开始/停止 API，Clip 物理按键行为相同。
+- **`browser`** — 仅使用旧的系统麦克风按住说话。
+
+Clip 网页按钮为按住录音、松开停止；物理按键同样可以开始/停止录音。两种触发都会渲染转写文本/回答并通过 `/api/tts` 播放回复。设备离线或正在处理会话时 Clip 控件会被禁用。
 
 ## 配置
 
@@ -156,12 +172,20 @@ python app.py
 | `PINECONE_INDEX_NAME`    | `conversations`            | Pinecone 索引名称                     |
 | `PINECONE_REGION`        | `us-east-1`                | Pinecone 无服务器区域                |
 | `EMBEDDING_MODEL`        | `all-MiniLM-L6-v2`         | 本地嵌入模型                         |
+| `VOICE_INPUT_MODE`       | `both`                     | `clip` / `both` / `browser`          |
+| `CLIP_BLE_ADDRESS`       | —                          | Clip BLE 地址（否则按名称扫描）      |
+| `CLIP_BLE_NAME`          | `Clip`                     | 扫描的 BLE 名称子串                  |
+| `CLIP_RECORD_MODE`       | `enhanced`                 | `normal` 或 `enhanced`               |
+| `CLIP_STATUS_INTERVAL`   | `5`                        | 状态心跳间隔（秒）                   |
+| `CLIP_DOWNLOAD_TIMEOUT`  | `300`                      | 单会话下载超时（秒）                 |
+| `CLIP_TEMP_DIR`          | `clip_audio`               | 本地临时音频目录                     |
+| `CLIP_MAX_FAILED_ARTIFACTS` | `5`                     | 失败产物保留数量上限                 |
 
 ### 可选的一次性设置
 
 **Supabase（对话存储）：**
 1. 创建一个 Supabase 项目，将 `SUPABASE_URL` + 服务角色密钥复制到 `.env`。
-2. 打开 **SQL 编辑器** 并运行 `supabase_schema.sql` 中的模式（创建 `users`、`conversations`、`messages` 表并初始化 `user-1`）。
+2. 打开 **SQL 编辑器** 并运行 `supabase_schema.sql`（创建对话表以及 `clip_ingestions`/`clip_device_state`，并初始化 `user-1`）。
 
 如果未配置 Supabase，应用会回退到 SQLite（`chat.db`）。
 
@@ -185,6 +209,23 @@ python app.py
 | POST   | `/api/chat/stream`| 文本聊天 → SSE（`thinking`、`token`、`done`）       |
 | POST   | `/api/voice`      | 音频 → STT → 聊天 → TTS → `audio/wav`             |
 | POST   | `/api/tts`        | `{text}` → `audio/wav`                             |
+| GET    | `/api/clip/status`| Clip 连接/录音状态                                 |
+| GET    | `/api/clip/events`| SSE：`connection`、`recording`、`workflow`、`result`|
+| POST   | `/api/clip/recordings/start` | `{mode?, conversation_id?}` 开始录音          |
+| POST   | `/api/clip/recordings/stop`  | 停止，返回 accepted/session 工作流数据       |
+| POST   | `/api/clip/sessions/<session_id>/ingest` | 会话的幂等重试/入队             |
+| POST   | `/api/clip/context`| `{conversation_id}` 注册当前活动会话               |
+
+Clip 错误映射：`400` 输入错误，`409` 状态冲突（如已在录音），`502` 命令/传输失败，`503` 设备不可用/重连中。
+
+Clip SSE 事件：
+
+```
+event: connection  data: {"connected": true, "status": {...}}
+event: recording   data: {"action": "started|stopped", "session": "...", "trigger": "web|physical"}
+event: workflow    data: {"status": "stopped|downloading|processing|failed", "session": "..."}
+event: result      data: {"session": "...", "conversation_id": "...", "transcript": "...", "response": "..."}
+```
 
 SSE 事件格式：
 
@@ -200,7 +241,7 @@ event: done       data: {"response": "...", "conversation_id": "..."}
 pytest
 ```
 
-测试使用 SQLite 回退，因此运行时不需要外部服务。
+测试使用 SQLite 回退，因此运行时不需要外部服务。Clip 相关测试使用假 BLE 传输 / 假 worker 与本地 SQLite，无需真实硬件或 BLE。覆盖：命令串行化生命周期、超时后重连、退避、下载期间无心跳、网页 START/STOP、物理状态事件、重连对账、首次基线、幂等摄取、原始 Opus→Ogg 固定数据（含损坏/截断输入）以及 API 状态/错误映射。
 
 ## 项目结构
 
@@ -263,13 +304,31 @@ backend/
 
 智能体（Groq `gpt-oss-20b` 或任何 `GROQ_AGENT_MODEL`）随后会自主决定何时使用它。
 
+## reSpeaker Clip 集成指南
+
+**BLE 前置条件（Linux）：** 安装 BlueZ（`sudo apt install bluez bluetooth`），确保适配器已启用（`bluetoothctl power on`），并确认 Clip 可见/可配对。若 Clip 首次开机，必要时长按进入 BLE 配对。
+
+**固定 SDK 版本：** `requirements.txt` 从 `github.com/Seeed-Studio/reSpeaker_Clip` 的提交 `93f86674a280b3325dd37a152d9b80d02857b049`（`subdirectory=sdk`）安装 `respeaker-clip-sdk[ble]`。运行时只使用当前 SDK API（`clip.ClipClient` + `clip.BleTransport`），不使用旧的 `ClipDevice` API。
+
+**单进程 / 单工作线程 — 关闭 Flask reloader。** 运行时为每台物理设备维护一条长期 BLE 连接和一个重连监督器。`app.py` 以 `use_reloader=False` 运行；不要用多个 worker/进程同时创建指向同一设备的 Clip 连接。开发时请直接 `python app.py` 启动，而不是使用开启 reloader 的 flask 命令。
+
+**协议相关的工程细节：**
+- 命令全部串行化；命令超时/协议/连接失败后，运行时先断开，再由监督器重建连接，之后才会执行下一条命令。
+- 下载持有操作锁期间，心跳不会发出任何命令。
+- 下载写 `.part`、校验大小/CRC32、原子发布（SDK 行为）。
+- 下载的 `NNNN.opus` 文件是 `[u16le 长度][原始 Opus 帧]` 数据包——由项目内的 `backend.clip.ogg` 模块在交给 Groq STT 前把会话全部文件按顺序重封装为一个合法的 Ogg Opus 文件（使用会话元数据 `sample_rate_hz`/`channels`）。Groq 支持 `.ogg`。
+- 仅使用 BLE 控制/下载（不做 Wi-Fi 切换）；绝不删除设备上的会话；成功的临时音频会被清理，失败的产物按 `CLIP_MAX_FAILED_ARTIFACTS` 有界保留。
+
+**部署输入模式：** 生产环境设置 `VOICE_INPUT_MODE=clip` 以隐藏选择器并避免 `getUserMedia` 调用；开发环境保留 `both`。
+
 ## 语音管道工作原理
 
 ```
-麦克风 → WebM 音频 → POST /api/voice
-  → Groq Whisper（STT）→ 转录文本
-  → 召回相关 Mem0 记忆 → LangGraph（路由器 → 节点）
-  → Groq LLM → 响应
-  → 保存轮次 + 记忆 + 异步向量索引
-  → Groq Orpheus（TTS）→ audio/wav → 浏览器扬声器
+浏览器麦克风 → WebM 音频 → POST /api/voice      ┐
+                                               ├─→ 共享 AudioService
+Clip 会话（物理按键或网页按住说话）             │   （转写 → LangGraph
+  → 事件/停止 → 下载 .opus → 重封装为 Ogg      │    → 回答 → 保存轮次
+  → Groq Whisper（STT）                        │    → 记忆 → 异步索引）
+  → 相同的 AudioService 流水线                 ┘
+  → Groq Orpheus（TTS）→ audio/wav → 浏览器扬声器（或由 result 事件调用 /api/tts）
 ```
