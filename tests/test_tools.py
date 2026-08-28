@@ -38,6 +38,19 @@ from backend.tools.gmail import (
     _build_raw,
     _reset_service,
 )
+from backend.tools.slack import (
+    slack_list_channels,
+    slack_read_channel,
+    slack_read_thread,
+    slack_search_messages,
+    slack_send_message,
+    slack_schedule_message,
+    slack_add_reminder,
+    slack_list_users,
+    slack_set_dnd,
+    _format_message,
+    _user_map,
+)
 from config import settings
 
 
@@ -344,5 +357,120 @@ class TestGmail:
             "gmail_create_draft",
             "gmail_send_message",
             "gmail_list_labels",
+        ):
+            assert expected in names
+
+
+class TestSlack:
+    def test_tools_are_defined(self):
+        assert slack_list_channels.name == "slack_list_channels"
+        assert slack_read_channel.name == "slack_read_channel"
+        assert slack_read_thread.name == "slack_read_thread"
+        assert slack_search_messages.name == "slack_search_messages"
+        assert slack_send_message.name == "slack_send_message"
+        assert slack_schedule_message.name == "slack_schedule_message"
+        assert slack_add_reminder.name == "slack_add_reminder"
+        assert slack_list_users.name == "slack_list_users"
+        assert slack_set_dnd.name == "slack_set_dnd"
+
+    def test_unconfigured_returns_message(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "")
+        monkeypatch.setattr(settings, "SLACK_USER_TOKEN", "")
+        for tool_fn, args in (
+            (slack_list_channels, {}),
+            (slack_read_channel, {"channel": "general"}),
+            (slack_read_thread, {"channel": "general", "thread_ts": "123.456"}),
+            (slack_search_messages, {"query": "deploy"}),
+            (slack_send_message, {"channel": "general", "text": "hi"}),
+            (slack_schedule_message, {"channel": "general", "text": "hi", "post_at": "1700000000"}),
+            (slack_add_reminder, {"text": "check", "time": "in 1 hour"}),
+            (slack_list_users, {}),
+            (slack_set_dnd, {"duration_minutes": 60}),
+        ):
+            result = tool_fn.invoke(args)
+            assert "not configured" in result or "needs a user token" in result
+
+    def test_read_channel_requires_channel(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-fake")
+        assert "required" in slack_read_channel.invoke({"channel": "  "})
+
+    def test_search_requires_query(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-fake")
+        assert "required" in slack_search_messages.invoke({"query": "  "})
+
+    def test_send_message_requires_fields(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-fake")
+        assert "required" in slack_send_message.invoke({"channel": "", "text": "hi"})
+        assert "required" in slack_send_message.invoke({"channel": "general", "text": "  "})
+
+    def test_reminder_requires_fields(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_USER_TOKEN", "xoxp-fake")
+        assert "required" in slack_add_reminder.invoke({"text": "", "time": "in 1 hour"})
+
+    def test_reminder_needs_user_token(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-fake")
+        monkeypatch.setattr(settings, "SLACK_USER_TOKEN", "")
+        result = slack_add_reminder.invoke({"text": "check", "time": "in 1 hour"})
+        assert "user token" in result
+
+    def test_dnd_needs_user_token(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-fake")
+        monkeypatch.setattr(settings, "SLACK_USER_TOKEN", "")
+        result = slack_set_dnd.invoke({"duration_minutes": 60})
+        assert "user token" in result
+
+    def test_schedule_message_validates_post_at(self, monkeypatch):
+        monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-fake")
+        result = slack_schedule_message.invoke(
+            {"channel": "general", "text": "hi", "post_at": "not-a-number"}
+        )
+        assert "timestamp" in result
+
+    def test_format_message_maps_user(self):
+        msg = {
+            "ts": "1700000000.000100",
+            "user": "U123",
+            "text": "hello world",
+            "reply_count": 2,
+        }
+        formatted = _format_message(msg, {"U123": "Alice"})
+        assert formatted["user"] == "Alice"
+        assert formatted["text"] == "hello world"
+        assert formatted["replies"] == 2
+
+    def test_format_message_truncates_long_text(self):
+        msg = {"ts": "1", "user": "U1", "text": "x" * 5000}
+        formatted = _format_message(msg, {})
+        assert len(formatted["text"]) <= 3003
+        assert formatted["text"].endswith("...")
+
+    def test_user_map_prefers_display_name(self):
+        members = [
+            {
+                "id": "U1",
+                "name": "alice",
+                "real_name": "Alice Smith",
+                "profile": {"display_name": "alice_dev"},
+            },
+            {"id": "U2", "name": "bob", "real_name": "Bob Jones", "profile": {}},
+        ]
+        users = _user_map(members)
+        assert users["U1"] == "alice_dev"
+        assert users["U2"] == "Bob Jones"
+
+    def test_slack_tools_are_registered(self):
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        for expected in (
+            "slack_list_channels",
+            "slack_read_channel",
+            "slack_read_thread",
+            "slack_search_messages",
+            "slack_send_message",
+            "slack_schedule_message",
+            "slack_add_reminder",
+            "slack_list_users",
+            "slack_set_dnd",
         ):
             assert expected in names

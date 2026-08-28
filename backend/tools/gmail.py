@@ -67,7 +67,7 @@ def _get_service():
 
         session = requests.Session()
         session.trust_env = True
-        creds.refresh(Request(session=session, timeout=GMAIL_HTTP_TIMEOUT))
+        creds.refresh(Request(session=session))
         _save_token(creds)
 
     proxy_url = (
@@ -304,9 +304,10 @@ def gmail_send_message(to: str, subject: str, body: str) -> str:
 
 
 @tool
-def gmail_list_labels() -> str:
+def gmail_list_labels(limit: int = 50) -> str:
     """List the labels in the user's Gmail account (e.g. INBOX, STARRED,
-    and custom labels). Useful for understanding how mail is organized."""
+    and custom labels). Useful for understanding how mail is organized.
+    limit is the maximum number of labels to return."""
     try:
         service = _get_service()
         if service is None:
@@ -316,7 +317,7 @@ def gmail_list_labels() -> str:
             label.get("name")
             for label in response.get("labels") or []
             if label.get("name")
-        ]
+        ][:max(1, min(limit, 100))]
         if not names:
             return "No labels found."
         return "Labels: " + ", ".join(names)

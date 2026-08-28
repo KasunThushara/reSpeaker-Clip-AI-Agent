@@ -131,6 +131,15 @@ TOOL_KEYWORDS = (
     "草稿",
     "回信",
     "发邮件",
+    "slack",
+    "channel",
+    "dm",
+    "direct message",
+    "snooze",
+    "do not disturb",
+    "勿扰",
+    "免打扰",
+    "频道",
 )
 
 
