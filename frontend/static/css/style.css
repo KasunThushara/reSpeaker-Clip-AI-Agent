@@ -73,6 +73,12 @@ h1 {
     background: #1a4a8a;
 }
 
+.gmail-connect-btn:disabled {
+    background: #4a5568;
+    cursor: default;
+    opacity: 0.7;
+}
+
 .message.system a {
     color: #533483;
     font-style: normal;

@@ -1,10 +1,12 @@
-"""One-time Gmail OAuth authorization (CLI fallback).
+"""One-time Google OAuth authorization (CLI fallback).
+
+Covers Gmail AND Google Calendar (they share one token.json).
 
 Run this when the in-app flow is unavailable (e.g. headless reSpeaker
 device without a browser):
 
-    python scripts/gmail_auth.py           # authorize (or refresh) token.json
-    python scripts/gmail_auth.py --force   # delete token.json and re-authorize
+    python scripts/google_auth.py           # authorize (or refresh) token.json
+    python scripts/google_auth.py --force   # delete token.json and re-authorize
 
 Requires credentials.json (Desktop-app OAuth client from Google Cloud
 Console) in the project root. Honors HTTPS_PROXY for both the local
@@ -18,7 +20,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import settings  # noqa: E402
-from backend.tools.gmail import GMAIL_SCOPES, _reset_service  # noqa: E402
+from backend.tools.calendar import CALENDAR_SCOPES as GOOGLE_SCOPES  # noqa: E402
+from backend.tools.gmail import _reset_service  # noqa: E402
+from backend.tools.calendar import _reset_service as _reset_calendar_service  # noqa: E402
 
 
 def main() -> int:
@@ -48,7 +52,7 @@ def main() -> int:
         import requests
 
         creds = Credentials.from_authorized_user_file(
-            settings.GMAIL_TOKEN_FILE, GMAIL_SCOPES
+            settings.GMAIL_TOKEN_FILE, GOOGLE_SCOPES
         )
         if creds.valid:
             print("Token is still valid, nothing to do.")
@@ -61,6 +65,7 @@ def main() -> int:
                 with open(settings.GMAIL_TOKEN_FILE, "w") as f:
                     f.write(creds.to_json())
                 _reset_service()
+                _reset_calendar_service()
                 print("Token refreshed successfully.")
                 return 0
             except Exception as e:
@@ -69,7 +74,7 @@ def main() -> int:
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     flow = InstalledAppFlow.from_client_secrets_file(
-        settings.GMAIL_CREDENTIALS_FILE, GMAIL_SCOPES
+        settings.GMAIL_CREDENTIALS_FILE, GOOGLE_SCOPES
     )
     print("Opening browser for Google authorization...")
     creds = flow.run_local_server(port=0, prompt="consent")
@@ -77,6 +82,7 @@ def main() -> int:
     with open(settings.GMAIL_TOKEN_FILE, "w") as f:
         f.write(creds.to_json())
     _reset_service()
+    _reset_calendar_service()
     print(f"Authorized. Token saved to {settings.GMAIL_TOKEN_FILE}")
     return 0
 

@@ -38,6 +38,17 @@ from backend.tools.gmail import (
     _build_raw,
     _reset_service,
 )
+from backend.tools.calendar import (
+    calendar_list_events,
+    calendar_quick_add,
+    calendar_create_event,
+    calendar_update_event,
+    calendar_delete_event,
+    calendar_find_free_time,
+    _fmt_event,
+    _parse_days,
+    _reset_service as _reset_calendar_service,
+)
 from backend.tools.slack import (
     slack_list_channels,
     slack_read_channel,
@@ -357,6 +368,105 @@ class TestGmail:
             "gmail_create_draft",
             "gmail_send_message",
             "gmail_list_labels",
+        ):
+            assert expected in names
+
+
+class TestCalendar:
+    def test_tools_are_defined(self):
+        assert calendar_list_events.name == "calendar_list_events"
+        assert calendar_quick_add.name == "calendar_quick_add"
+        assert calendar_create_event.name == "calendar_create_event"
+        assert calendar_update_event.name == "calendar_update_event"
+        assert calendar_delete_event.name == "calendar_delete_event"
+        assert calendar_find_free_time.name == "calendar_find_free_time"
+
+    def test_unauthorized_returns_message(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_calendar_service()
+        for tool_fn, args in (
+            (calendar_list_events, {"days": 7}),
+            (calendar_quick_add, {"text": "dentist tomorrow 3pm"}),
+            (calendar_create_event, {"title": "Meeting", "start": "2026-08-29T14:00:00+08:00"}),
+            (calendar_update_event, {"event_id": "abc", "title": "New"}),
+            (calendar_delete_event, {"event_id": "abc"}),
+            (calendar_find_free_time, {"date": "2026-08-29"}),
+        ):
+            result = tool_fn.invoke(args)
+            assert "unavailable" in result
+
+    def test_quick_add_requires_text(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_calendar_service()
+        assert "required" in calendar_quick_add.invoke({"text": "  "})
+
+    def test_create_event_requires_fields(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_calendar_service()
+        assert "required" in calendar_create_event.invoke({"title": "", "start": ""})
+
+    def test_update_event_requires_field(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_calendar_service()
+        assert "required" in calendar_update_event.invoke({"event_id": "  "})
+        assert "At least one" in calendar_update_event.invoke(
+            {"event_id": "abc", "title": "", "start": "", "end": ""}
+        )
+
+    def test_delete_event_requires_id(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_calendar_service()
+        assert "required" in calendar_delete_event.invoke({"event_id": ""})
+
+    def test_find_free_time_requires_date(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(settings, "GMAIL_TOKEN_FILE", str(tmp_path / "missing.json"))
+        _reset_calendar_service()
+        assert "required" in calendar_find_free_time.invoke({"date": ""})
+
+    def test_fmt_event_formats_fields(self):
+        event = {
+            "id": "evt1",
+            "summary": "Team standup",
+            "start": {"dateTime": "2026-08-29T09:30:00+08:00"},
+            "end": {"dateTime": "2026-08-29T09:45:00+08:00"},
+            "location": "Room 4",
+        }
+        line = _fmt_event(event)
+        assert "evt1" in line
+        assert "Team standup" in line
+        assert "09:30" in line
+        assert "Room 4" in line
+
+    def test_fmt_event_handles_all_day(self):
+        event = {
+            "id": "evt2",
+            "summary": "Holiday",
+            "start": {"date": "2026-10-01"},
+            "end": {"date": "2026-10-02"},
+        }
+        line = _fmt_event(event)
+        assert "2026-10-01" in line
+        assert "Holiday" in line
+
+    def test_parse_days_clamps_range(self):
+        from datetime import datetime
+
+        lo, hi = _parse_days(0)
+        assert (hi - lo) >= datetime.now() - datetime.now()  # same-day minimum
+        lo, hi = _parse_days(365)
+        assert (hi - lo).days <= 31  # capped at 31 days
+
+    def test_calendar_tools_are_registered(self):
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        for expected in (
+            "calendar_list_events",
+            "calendar_quick_add",
+            "calendar_create_event",
+            "calendar_update_event",
+            "calendar_delete_event",
+            "calendar_find_free_time",
         ):
             assert expected in names
 

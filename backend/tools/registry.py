@@ -26,6 +26,14 @@ from backend.tools.gmail import (
     gmail_send_message,
     gmail_list_labels,
 )
+from backend.tools.calendar import (
+    calendar_list_events,
+    calendar_quick_add,
+    calendar_create_event,
+    calendar_update_event,
+    calendar_delete_event,
+    calendar_find_free_time,
+)
 from backend.tools.slack import (
     slack_list_channels,
     slack_read_channel,
@@ -65,6 +73,14 @@ def get_available_tools() -> list:
         gmail_create_draft,
         gmail_send_message,
         gmail_list_labels,
+    ])
+    tools.extend([
+        calendar_list_events,
+        calendar_quick_add,
+        calendar_create_event,
+        calendar_update_event,
+        calendar_delete_event,
+        calendar_find_free_time,
     ])
     tools.extend([
         slack_list_channels,

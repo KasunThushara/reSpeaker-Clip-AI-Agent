@@ -21,9 +21,11 @@ import wsgiref.util
 from flask import Blueprint, jsonify
 
 from config import settings
-from backend.tools.gmail import GMAIL_SCOPES, _reset_service
+from backend.tools.calendar import CALENDAR_SCOPES as GOOGLE_SCOPES
+from backend.tools.gmail import _reset_service
+from backend.tools.calendar import _reset_service as _reset_calendar_service
 
-gmail_auth_bp = Blueprint("gmail_auth", __name__)
+google_auth_bp = Blueprint("google_auth", __name__)
 
 _lock = threading.Lock()
 _pending = {"status": "idle", "auth_url": None, "error": None}
@@ -31,9 +33,10 @@ _pending = {"status": "idle", "auth_url": None, "error": None}
 # The success/error pages notify the opener window via postMessage and then
 # close themselves. '*' origin because the popup lives on a random port.
 _SUCCESS_PAGE = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Gmail connected</title></head>
+<html><head><meta charset="utf-8"><title>Google account connected</title></head>
 <body style="font-family:sans-serif;text-align:center;padding-top:60px">
-<h2>&#9989; Gmail connected</h2>
+<h2>&#9989; Google account connected</h2>
+<p>Gmail and Google Calendar are ready.</p>
 <p>Returning to your conversation...</p>
 <script>
   if (window.opener) {
@@ -46,7 +49,7 @@ _SUCCESS_PAGE = """<!DOCTYPE html>
 _ERROR_PAGE = """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Authorization failed</title></head>
 <body style="font-family:sans-serif;text-align:center;padding-top:60px">
-<h2>&#9888;&#65039; Gmail authorization failed</h2>
+<h2>&#9888;&#65039; Google authorization failed</h2>
 <p>{message}</p>
 <p>You can close this window and try again.</p>
 <script>
@@ -77,7 +80,7 @@ def _run_flow():
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     flow = InstalledAppFlow.from_client_secrets_file(
-        settings.GMAIL_CREDENTIALS_FILE, GMAIL_SCOPES
+        settings.GMAIL_CREDENTIALS_FILE, GOOGLE_SCOPES
     )
     result = {"html": _SUCCESS_PAGE, "error": None}
 
@@ -93,6 +96,7 @@ def _run_flow():
             flow.fetch_token(authorization_response=uri.replace("http", "https"))
             _save_credentials(flow.credentials)
             _reset_service()
+            _reset_calendar_service()
             _pending["status"] = "authorized"
             return [_SUCCESS_PAGE.encode("utf-8")]
         except Exception as e:  # user denied, network error, ...
@@ -115,8 +119,8 @@ def _run_flow():
         server.server_close()
 
 
-@gmail_auth_bp.route("/gmail/auth/start", methods=["GET"])
-def gmail_auth_start():
+@google_auth_bp.route("/gmail/auth/start", methods=["GET"])
+def google_auth_start():
     if not os.path.exists(settings.GMAIL_CREDENTIALS_FILE):
         return jsonify({
             "error": (
@@ -153,6 +157,6 @@ def gmail_auth_start():
         return jsonify({"auth_url": _pending["auth_url"]})
 
 
-@gmail_auth_bp.route("/gmail/auth/status", methods=["GET"])
-def gmail_auth_status():
+@google_auth_bp.route("/gmail/auth/status", methods=["GET"])
+def google_auth_status():
     return jsonify({"authorized": _has_refresh_token()})

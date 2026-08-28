@@ -140,21 +140,26 @@ function rememberConversation(cid) {
 // ---- Gmail OAuth connect flow ---------------------------------------------
 
 let pendingGmailRequest = null;   // the user request blocked on authorization
+let gmailConnectButtons = [];     // live Connect buttons (disabled after success)
+let gmailAuthInFlight = false;    // guards against double-starting the flow
+let gmailAuthorized = false;      // once true, ignore further auth notifications
 
 function looksLikeGmailConnectHint(text) {
-    return /gmail[^.]{0,40}not connected|not connected[^.]{0,40}gmail|connect[^.]{0,20}google account/i.test(text || '');
+    return /gmail[^.]{0,40}not connected|not connected[^.]{0,40}gmail|connect[^.]{0,20}google account|连接.{0,6}google\s*账号|连接.{0,6}谷歌\s*账号|google\s*账号.{0,8}未\s*连接|谷歌\s*账号.{0,8}未\s*连接|日历.{0,10}未\s*连接|日历.{0,10}无法\s*使用|gmail.{0,10}未\s*连接|gmail.{0,10}无法\s*使用/i.test(text || '');
 }
 
 function insertGmailConnectButton() {
     const wrap = document.createElement('div');
     wrap.className = 'message system';
     const btn = document.createElement('button');
-    btn.textContent = 'Connect Gmail';
+    btn.textContent = 'Connect Google Account';
     btn.className = 'gmail-connect-btn';
     btn.addEventListener('click', startGmailAuth);
     wrap.appendChild(btn);
     chatBox.appendChild(wrap);
     chatBox.scrollTop = chatBox.scrollHeight;
+    // Keep a handle so the button can be disabled after a successful connect.
+    gmailConnectButtons.push(btn);
 }
 
 function insertAuthLink(url) {
@@ -171,6 +176,8 @@ function insertAuthLink(url) {
 }
 
 async function startGmailAuth() {
+    if (gmailAuthInFlight || gmailAuthorized) return;
+    gmailAuthInFlight = true;
     setStatus('Waiting for Google authorization...');
     try {
         const resp = await fetch('/api/gmail/auth/start');
@@ -189,11 +196,17 @@ async function startGmailAuth() {
     } catch (err) {
         setStatus('Error: ' + err.message, true);
         console.error(err);
+    } finally {
+        gmailAuthInFlight = false;
     }
 }
 
 function onGmailAuthorized() {
-    addMessage('assistant', '✅ Gmail connected, continuing your request...');
+    if (gmailAuthorized) return;   // postMessage + focus-check can both fire
+    gmailAuthorized = true;
+    // Disable every Connect button still in the chat history.
+    gmailConnectButtons.forEach((b) => { b.disabled = true; b.textContent = '✓ Connected'; });
+    addMessage('assistant', '✅ Google account connected (Gmail + Calendar).');
     setStatus('Ready');
     if (pendingGmailRequest) {
         const text = pendingGmailRequest;
@@ -224,6 +237,7 @@ window.addEventListener('focus', () => {
 });
 
 function maybeOfferGmailConnect(responseText, originalRequest) {
+    if (gmailAuthorized) return;   // already connected; no need to offer again
     if (!looksLikeGmailConnectHint(responseText)) return;
     pendingGmailRequest = originalRequest || null;
     insertGmailConnectButton();
