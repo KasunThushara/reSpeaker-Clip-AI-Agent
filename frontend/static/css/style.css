@@ -58,6 +58,26 @@ h1 {
     font-style: italic;
 }
 
+.gmail-connect-btn {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 8px;
+    background: #0f3460;
+    color: #fff;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.gmail-connect-btn:hover {
+    background: #1a4a8a;
+}
+
+.message.system a {
+    color: #533483;
+    font-style: normal;
+}
+
 .message.user {
     background: #0f3460;
     color: #eee;

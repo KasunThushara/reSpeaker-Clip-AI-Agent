@@ -16,8 +16,10 @@ MAX_BODY_CHARS = 2000
 GMAIL_HTTP_TIMEOUT = 15
 
 GMAIL_UNAVAILABLE = (
-    "Gmail tools are unavailable: no authorized token found. "
-    "Run scripts/gmail_auth.py once to authorize."
+    "Gmail tools are unavailable: the user's Google account is not connected yet. "
+    "Tell the user Gmail is not connected and they need to connect their "
+    "Google account first (a connect button should appear in the chat UI). "
+    "Do not retry the tool call in this turn."
 )
 
 _service = None

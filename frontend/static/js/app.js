@@ -19,6 +19,7 @@ let audioChunks = [];
 let isRecording = false;
 let conversationId = null;
 let currentAssistantMsg = null;
+let lastSentText = null;     // last text request, for Gmail auth retry
 
 let clipMode = false;        // true when the active input is the Clip
 let clipRecording = false;   // device recording state from events
@@ -136,6 +137,98 @@ function rememberConversation(cid) {
     registerContext(cid);
 }
 
+// ---- Gmail OAuth connect flow ---------------------------------------------
+
+let pendingGmailRequest = null;   // the user request blocked on authorization
+
+function looksLikeGmailConnectHint(text) {
+    return /gmail[^.]{0,40}not connected|not connected[^.]{0,40}gmail|connect[^.]{0,20}google account/i.test(text || '');
+}
+
+function insertGmailConnectButton() {
+    const wrap = document.createElement('div');
+    wrap.className = 'message system';
+    const btn = document.createElement('button');
+    btn.textContent = 'Connect Gmail';
+    btn.className = 'gmail-connect-btn';
+    btn.addEventListener('click', startGmailAuth);
+    wrap.appendChild(btn);
+    chatBox.appendChild(wrap);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function insertAuthLink(url) {
+    const wrap = document.createElement('div');
+    wrap.className = 'message system';
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'Popup blocked — click here to authorize Gmail';
+    wrap.appendChild(a);
+    chatBox.appendChild(wrap);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+async function startGmailAuth() {
+    setStatus('Waiting for Google authorization...');
+    try {
+        const resp = await fetch('/api/gmail/auth/start');
+        const data = await resp.json();
+        if (!resp.ok) {
+            addMessage('assistant', 'Error: ' + (data.error || 'failed to start authorization'));
+            setStatus('Error', true);
+            return;
+        }
+        if (data.status === 'already_authorized') {
+            onGmailAuthorized();
+            return;
+        }
+        const win = window.open(data.auth_url, 'gmailAuth', 'width=520,height=680');
+        if (!win) insertAuthLink(data.auth_url);
+    } catch (err) {
+        setStatus('Error: ' + err.message, true);
+        console.error(err);
+    }
+}
+
+function onGmailAuthorized() {
+    addMessage('assistant', '✅ Gmail connected, continuing your request...');
+    setStatus('Ready');
+    if (pendingGmailRequest) {
+        const text = pendingGmailRequest;
+        pendingGmailRequest = null;
+        sendTextChat(text);
+    }
+}
+
+function onGmailAuthError(message) {
+    addMessage('assistant', 'Gmail authorization failed: ' + (message || 'unknown error') + '. You can try the Connect Gmail button again.');
+    setStatus('Error', true);
+}
+
+window.addEventListener('message', (e) => {
+    if (!e.data || typeof e.data !== 'object') return;
+    if (e.data.type === 'gmail_authorized') onGmailAuthorized();
+    else if (e.data.type === 'gmail_auth_error') onGmailAuthError(e.data.error);
+});
+
+// Fallback for popups blocked into a plain tab (opener is null there):
+// check once when the main window regains focus.
+window.addEventListener('focus', () => {
+    if (!pendingGmailRequest) return;
+    fetch('/api/gmail/auth/status')
+        .then((r) => r.json())
+        .then((s) => { if (s.authorized) onGmailAuthorized(); })
+        .catch(() => {});
+});
+
+function maybeOfferGmailConnect(responseText, originalRequest) {
+    if (!looksLikeGmailConnectHint(responseText)) return;
+    pendingGmailRequest = originalRequest || null;
+    insertGmailConnectButton();
+}
+
 // ---- browser microphone input (legacy) ------------------------------------
 
 async function startRecording() {
@@ -187,6 +280,7 @@ async function sendVoice(audioBlob) {
 
         if (transcript) addMessage('user', transcript);
         if (textResponse) addMessage('assistant', textResponse);
+        maybeOfferGmailConnect(textResponse, transcript);
 
         if (response.ok) {
             const audioBlob2 = await response.blob();
@@ -317,6 +411,7 @@ function handleClipSseEvent(eventName, data) {
         if (data.transcript) addMessage('user', data.transcript);
         if (data.response) addMessage('assistant', data.response);
         rememberConversation(data.conversation_id);
+        maybeOfferGmailConnect(data.response, data.transcript);
         if (data.response) playTts(data.response);
         setClipUI(false, false);
         setStatus('Ready');
@@ -403,6 +498,7 @@ function handleSseEvent(rawEvent) {
             addMessage('assistant', data.response);
         }
         rememberConversation(data.conversation_id);
+        maybeOfferGmailConnect(data.response, lastSentText);
         if (data.response) playTts(data.response);
         setStatus('Ready');
     } else if (event === 'error') {
@@ -413,6 +509,7 @@ function handleSseEvent(rawEvent) {
 
 async function sendTextChat(text) {
     addMessage('user', text);
+    lastSentText = text;
     setStatus('Thinking...');
 
     try {
