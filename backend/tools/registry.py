@@ -45,6 +45,14 @@ from backend.tools.slack import (
     slack_list_users,
     slack_set_dnd,
 )
+from backend.tools.linear import (
+    linear_list_teams,
+    linear_list_my_issues,
+    linear_search_issues,
+    linear_get_issue,
+    linear_create_issue,
+    linear_update_issue,
+)
 
 
 def get_available_tools() -> list:
@@ -92,5 +100,13 @@ def get_available_tools() -> list:
         slack_add_reminder,
         slack_list_users,
         slack_set_dnd,
+    ])
+    tools.extend([
+        linear_list_teams,
+        linear_list_my_issues,
+        linear_search_issues,
+        linear_get_issue,
+        linear_create_issue,
+        linear_update_issue,
     ])
     return tools

@@ -62,6 +62,17 @@ from backend.tools.slack import (
     _format_message,
     _user_map,
 )
+from backend.tools.linear import (
+    linear_list_teams,
+    linear_list_my_issues,
+    linear_search_issues,
+    linear_get_issue,
+    linear_create_issue,
+    linear_update_issue,
+    _fmt_issue,
+    _fmt_team,
+    _clamp_priority,
+)
 from config import settings
 
 
@@ -582,5 +593,94 @@ class TestSlack:
             "slack_add_reminder",
             "slack_list_users",
             "slack_set_dnd",
+        ):
+            assert expected in names
+
+
+class TestLinear:
+    def test_tools_are_defined(self):
+        assert linear_list_teams.name == "linear_list_teams"
+        assert linear_list_my_issues.name == "linear_list_my_issues"
+        assert linear_search_issues.name == "linear_search_issues"
+        assert linear_get_issue.name == "linear_get_issue"
+        assert linear_create_issue.name == "linear_create_issue"
+        assert linear_update_issue.name == "linear_update_issue"
+
+    def test_unconfigured_returns_message(self, monkeypatch):
+        monkeypatch.setattr(settings, "LINEAR_API_KEY", "")
+        for tool_fn, args in (
+            (linear_list_teams, {}),
+            (linear_list_my_issues, {}),
+            (linear_search_issues, {"query": "bug"}),
+            (linear_get_issue, {"issue_id": "ENG-42"}),
+            (linear_create_issue, {"title": "test", "team_id": "t1"}),
+            (linear_update_issue, {"issue_id": "ENG-42", "state": "Done"}),
+        ):
+            result = tool_fn.invoke(args)
+            assert "not configured" in result
+
+    def test_search_requires_query(self, monkeypatch):
+        monkeypatch.setattr(settings, "LINEAR_API_KEY", "lin_api_fake")
+        assert "required" in linear_search_issues.invoke({"query": "  "})
+
+    def test_get_issue_requires_id(self, monkeypatch):
+        monkeypatch.setattr(settings, "LINEAR_API_KEY", "lin_api_fake")
+        assert "required" in linear_get_issue.invoke({"issue_id": ""})
+
+    def test_create_issue_requires_fields(self, monkeypatch):
+        monkeypatch.setattr(settings, "LINEAR_API_KEY", "lin_api_fake")
+        assert "required" in linear_create_issue.invoke({"title": "", "team_id": "t1"})
+        assert "required" in linear_create_issue.invoke({"title": "test", "team_id": ""})
+
+    def test_update_issue_requires_fields(self, monkeypatch):
+        monkeypatch.setattr(settings, "LINEAR_API_KEY", "lin_api_fake")
+        assert "required" in linear_update_issue.invoke({"issue_id": "", "state": "Done"})
+        result = linear_update_issue.invoke({"issue_id": "ENG-42"})
+        assert "required" in result
+
+    def test_clamp_priority_bounds(self):
+        assert _clamp_priority(-5) == 0
+        assert _clamp_priority(0) == 0
+        assert _clamp_priority(4) == 4
+        assert _clamp_priority(9) == 4
+
+    def test_fmt_issue_formats_fields(self):
+        issue = {
+            "identifier": "ENG-42",
+            "title": "Fix login",
+            "state": {"name": "In Progress"},
+            "assignee": {"name": "Alice"},
+        }
+        assert _fmt_issue(issue) == 'ENG-42: "Fix login" [In Progress] @Alice'
+
+    def test_fmt_issue_handles_missing_fields(self):
+        issue = {"identifier": "ENG-1", "title": "Bare"}
+        assert _fmt_issue(issue) == 'ENG-1: "Bare"'
+
+    def test_fmt_issue_truncates_description(self):
+        issue = {
+            "identifier": "ENG-2",
+            "title": "Long",
+            "description": "x" * 500,
+        }
+        result = _fmt_issue(issue, include_description=True)
+        assert "..." in result
+        assert len(result) < 400
+
+    def test_fmt_team(self):
+        team = {"id": "abc", "name": "Engineering", "key": "ENG"}
+        assert _fmt_team(team) == "- Engineering (id: abc, key: ENG)"
+
+    def test_linear_tools_are_registered(self):
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        for expected in (
+            "linear_list_teams",
+            "linear_list_my_issues",
+            "linear_search_issues",
+            "linear_get_issue",
+            "linear_create_issue",
+            "linear_update_issue",
         ):
             assert expected in names

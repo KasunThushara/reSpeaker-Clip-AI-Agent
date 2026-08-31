@@ -45,6 +45,9 @@ class Settings:
     # Slack: user token (xoxp-) from the same app, needed for reminders and DND.
     SLACK_USER_TOKEN: str = os.getenv("SLACK_USER_TOKEN", "")
 
+    # Linear: personal API key from Settings -> Security & access.
+    LINEAR_API_KEY: str = os.getenv("LINEAR_API_KEY", "")
+
     SHOPIFY_ACCESS_TOKEN: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
     SHOPIFY_AGENT_PROFILE: str = os.getenv(
         "SHOPIFY_AGENT_PROFILE",
