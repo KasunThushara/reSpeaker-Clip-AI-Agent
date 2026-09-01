@@ -246,55 +246,81 @@ function maybeOfferGmailConnect(responseText, originalRequest) {
 // ---- Composio Connect Link flow -------------------------------------------
 
 // Composio returns a hosted OAuth link (a *.composio.dev URL) when a tool
-// needs an account. Extract it from the assistant reply so the user can open
-// it directly, mirroring the Gmail connect flow.
-let composioShownLinks = new Set();   // avoid rendering the same link twice
+// needs an account. The backend caches the link lazily; we render a Connect
+// button when the reply asks the user to connect.
+let composioShownLinks = new Set();   // dedupe button per reply text
+let composioConnectButtons = [];      // live Connect buttons (disabled after success)
+let pendingComposioRequest = null;    // the user request blocked on authorization
+let composioBaseline = new Set();     // connected toolkits before the auth flow
+let composioAwaiting = false;         // waiting for the user to finish connecting
 
-function findComposioLinks(text) {
-    const re = /https?:\/\/[^\s<>"']*composio\.dev[^\s<>"']*/gi;
-    const found = text && text.match(re);
-    return found || [];
+function looksLikeComposioConnectHint(text) {
+    return /连接按钮|connect button/i.test(text || '');
 }
 
-function insertComposioConnectLink(url) {
-    if (composioShownLinks.has(url)) return;
-    composioShownLinks.add(url);
+function insertComposioConnectButton(replyText) {
+    if (composioShownLinks.has(replyText)) return;
+    composioShownLinks.add(replyText);
     const wrap = document.createElement('div');
     wrap.className = 'message system';
     const btn = document.createElement('button');
     btn.textContent = 'Connect Account';
-    btn.className = 'gmail-connect-btn';   // reuse the Gmail button style for a consistent look
-    btn.addEventListener('click', () => openComposioConnect(url));
+    btn.className = 'gmail-connect-btn';
+    btn.addEventListener('click', openComposioConnect);
     wrap.appendChild(btn);
     chatBox.appendChild(wrap);
     chatBox.scrollTop = chatBox.scrollHeight;
+    composioConnectButtons.push(btn);
 }
 
-function openComposioConnect(url) {
-    const win = window.open(url, 'composioConnect', 'width=520,height=680');
-    if (win) return;
-    // Popup blocked: render a direct link as a fallback.
-    const wrap = document.createElement('div');
-    wrap.className = 'message system';
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.textContent = 'Popup blocked - click here to connect';
-    wrap.appendChild(a);
-    chatBox.appendChild(wrap);
-    chatBox.scrollTop = chatBox.scrollHeight;
+function openComposioConnect() {
+    // Fetch the lazily-cached connect link from the backend (the URL is never
+    // embedded in the chat reply). Then open it in a new tab.
+    fetch('/api/composio/connect/link')
+        .then((r) => r.json())
+        .then((d) => {
+            if (!d.redirect_url) { setStatus('No connection link available', true); return; }
+            composioAwaiting = true;
+            fetch('/api/composio/auth/connected')
+                .then((r2) => r2.json())
+                .then((s) => { composioBaseline = new Set(s.connected || []); })
+                .catch(() => {});
+            window.open(d.redirect_url, '_blank', 'noopener,noreferrer');
+        })
+        .catch((err) => { setStatus('Error: ' + err.message, true); });
 }
 
-function maybeOfferComposioConnect(responseText) {
-    const links = findComposioLinks(responseText);
-    links.forEach(insertComposioConnectLink);
-    // 方案3(预备): 连接完成后的自动确认,对齐 Gmail 的 onGmailAuthorized 闭环。
-    // 后续若要做,需:
-    //   1) 后端加 /api/composio/auth/status?toolkit=...(用 session.toolkits(is_connected=True) 判断)
-    //   2) 前端 window.addEventListener('focus', ...) 里轮询该端点
-    //   3) maybeOfferComposioConnect 增加 originalRequest 参数并存入 pendingComposioRequest,
-    //      连接成功后自动重发原请求(参照 onGmailAuthorized)
+function onComposioAuthorized() {
+    composioAwaiting = false;
+    composioConnectButtons.forEach((b) => { b.disabled = true; b.textContent = '✓ Connected'; });
+    addMessage('assistant', '✅ Account connected.');
+    setStatus('Ready');
+    if (pendingComposioRequest) {
+        const text = pendingComposioRequest;
+        pendingComposioRequest = null;
+        sendTextChat(text);
+    }
+}
+
+// Composio's hosted connect page opens in a plain tab (opener is null), so we
+// can't rely on postMessage. Poll for a newly-added connection when the main
+// window regains focus after the user returns from the connect tab.
+window.addEventListener('focus', () => {
+    if (!composioAwaiting || !pendingComposioRequest) return;
+    fetch('/api/composio/auth/connected')
+        .then((r) => r.json())
+        .then((d) => {
+            const now = new Set(d.connected || []);
+            const added = Array.from(now).filter((s) => !composioBaseline.has(s));
+            if (added.length > 0) onComposioAuthorized();
+        })
+        .catch(() => {});
+});
+
+function maybeOfferComposioConnect(responseText, originalRequest) {
+    if (!looksLikeComposioConnectHint(responseText)) return;
+    pendingComposioRequest = originalRequest || lastSentText || null;
+    insertComposioConnectButton(responseText);
 }
 
 // ---- browser microphone input (legacy) ------------------------------------
@@ -349,7 +375,7 @@ async function sendVoice(audioBlob) {
         if (transcript) addMessage('user', transcript);
         if (textResponse) addMessage('assistant', textResponse);
         maybeOfferGmailConnect(textResponse, transcript);
-        maybeOfferComposioConnect(textResponse);
+        maybeOfferComposioConnect(textResponse, transcript);
 
         if (response.ok) {
             const audioBlob2 = await response.blob();
@@ -480,7 +506,7 @@ function handleClipSseEvent(eventName, data) {
         if (data.response) addMessage('assistant', data.response);
         rememberConversation(data.conversation_id);
         maybeOfferGmailConnect(data.response, data.transcript);
-        maybeOfferComposioConnect(data.response);
+        maybeOfferComposioConnect(data.response, data.transcript);
         if (data.response) playTts(data.response);
         setClipUI(false, false);
         setStatus('Ready');
@@ -567,7 +593,7 @@ function handleSseEvent(rawEvent) {
             addMessage('assistant', data.response);
         }
         rememberConversation(data.conversation_id);
-        maybeOfferComposioConnect(data.response);
+        maybeOfferComposioConnect(data.response, lastSentText);
         maybeOfferGmailConnect(data.response, lastSentText);
         if (data.response) playTts(data.response);
         setStatus('Ready');
@@ -625,6 +651,148 @@ async function playTts(text) {
     } catch (err) {
         console.error('TTS failed', err);
     }
+}
+
+// ---- Composio tool selection (side panel) -----------------------------------
+
+const toolsBtn = document.getElementById('toolsBtn');
+const toolsSidebar = document.getElementById('toolsSidebar');
+const toolsOverlay = document.getElementById('toolsOverlay');
+const toolsCloseBtn = document.getElementById('toolsCloseBtn');
+const toolsApplyBtn = document.getElementById('toolsApplyBtn');
+const toolkitSearch = document.getElementById('toolkitSearch');
+const toolkitList = document.getElementById('toolkitList');
+
+const allToolkits = [];   // cached catalog from the backend
+const selectedSet = new Set();  // slugs currently checked
+
+function openToolsSidebar() {
+    toolsSidebar.hidden = false;
+    toolsOverlay.hidden = false;
+    toolkitSearch.value = '';
+    if (allToolkits.length === 0) {
+        loadToolkits();
+    } else {
+        renderToolkits(allToolkits);
+    }
+}
+
+function closeToolsSidebar() {
+    toolsSidebar.hidden = true;
+    toolsOverlay.hidden = true;
+}
+
+async function loadToolkits() {
+    try {
+        const resp = await fetch('/api/composio/toolkits');
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'failed to load toolkits');
+        allToolkits.length = 0;
+        allToolkits.push(...(data.toolkits || []));
+        selectedSet.clear();
+        (data.selected || []).forEach((s) => selectedSet.add(s));
+        renderToolkits(allToolkits);
+    } catch (err) {
+        toolkitList.innerHTML = '<div class="tools-empty">Error: ' + err.message + '</div>';
+    }
+}
+
+function renderToolkits(items) {
+    const q = (toolkitSearch.value || '').trim().toLowerCase();
+    const filtered = items.filter((t) => {
+        if (!q) return true;
+        return t.slug.toLowerCase().includes(q) || (t.name || '').toLowerCase().includes(q);
+    });
+    if (filtered.length === 0) {
+        toolkitList.innerHTML = '<div class="tools-empty">No matching apps.</div>';
+        return;
+    }
+    toolkitList.innerHTML = '';
+    for (const t of filtered) {
+        const row = document.createElement('label');
+        row.className = 'tools-item' + (selectedSet.has(t.slug) ? ' selected' : '');
+
+        // logo (fall back to a letter avatar)
+        const logo = document.createElement('span');
+        logo.className = 'tools-item-logo';
+        if (t.logo) {
+            const img = document.createElement('img');
+            img.src = t.logo;
+            img.alt = '';
+            img.loading = 'lazy';
+            img.onerror = () => { img.remove(); logo.textContent = (t.name || t.slug)[0]; };
+            logo.appendChild(img);
+        } else {
+            logo.textContent = (t.name || t.slug)[0];
+        }
+
+        // body: name + slug
+        const body = document.createElement('span');
+        body.className = 'tools-item-body';
+        const name = document.createElement('span');
+        name.className = 'tools-item-name';
+        name.textContent = t.name || t.slug;
+        const slug = document.createElement('span');
+        slug.className = 'tools-item-slug';
+        slug.textContent = t.slug;
+        body.appendChild(name);
+        body.appendChild(slug);
+
+        // right: auth badge + tool count
+        const meta = document.createElement('span');
+        meta.className = 'tools-item-meta';
+        if (t.auth_badge) {
+            const badge = document.createElement('span');
+            badge.className = 'tools-item-badge';
+            badge.textContent = t.auth_badge;
+            meta.appendChild(badge);
+        }
+        const count = document.createElement('span');
+        count.className = 'tools-item-count';
+        count.textContent = (t.tools_count != null ? t.tools_count + ' tools' : '');
+        meta.appendChild(count);
+
+        // checkbox
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = row.classList.contains('selected');
+        cb.addEventListener('change', () => {
+            if (cb.checked) { selectedSet.add(t.slug); row.classList.add('selected'); }
+            else { selectedSet.delete(t.slug); row.classList.remove('selected'); }
+        });
+
+        row.appendChild(logo);
+        row.appendChild(body);
+        row.appendChild(meta);
+        row.appendChild(cb);
+        toolkitList.appendChild(row);
+    }
+}
+
+async function applyToolkits() {
+    try {
+        const resp = await fetch('/api/composio/toolkits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toolkits: Array.from(selectedSet) }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'failed to apply');
+        closeToolsSidebar();
+        setStatus('Ready');
+    } catch (err) {
+        setStatus('Error: ' + err.message, true);
+    }
+}
+
+if (toolsBtn) {
+    toolsBtn.addEventListener('click', openToolsSidebar);
+    toolsCloseBtn.addEventListener('click', closeToolsSidebar);
+    toolsOverlay.addEventListener('click', closeToolsSidebar);
+    toolsApplyBtn.addEventListener('click', applyToolkits);
+    toolkitSearch.addEventListener('input', () => renderToolkits(allToolkits));
+    // Preload the catalog so the sidebar is populated the moment it opens.
+    loadToolkits();
 }
 
 // ---- init ---------------------------------------------------------------------

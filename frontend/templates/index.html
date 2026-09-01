@@ -7,6 +7,21 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <button id="toolsBtn" class="tools-btn" title="Select tools">🧰 Tools</button>
+
+    <div id="toolsSidebar" class="tools-sidebar" hidden>
+        <div class="tools-sidebar-header">
+            <span>Composio Tools</span>
+            <button id="toolsCloseBtn" class="tools-close-btn">×</button>
+        </div>
+        <input type="text" id="toolkitSearch" class="tools-search" placeholder="Search apps..." autocomplete="off">
+        <div id="toolkitList" class="tools-list"></div>
+        <div class="tools-sidebar-footer">
+            <button id="toolsApplyBtn" class="gmail-connect-btn">Apply</button>
+        </div>
+    </div>
+    <div id="toolsOverlay" class="tools-overlay" hidden></div>
+
     <div class="container">
         <h1>Voice Assistant</h1>
         <script id="clip-config" type="application/json">{{ clip_config | tojson }}</script>

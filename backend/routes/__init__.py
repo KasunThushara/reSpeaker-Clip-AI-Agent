@@ -4,6 +4,7 @@ from backend.routes.voice import voice_bp
 from backend.routes.tts import tts_bp
 from backend.routes.clip import clip_bp
 from backend.routes.google_auth import google_auth_bp
+from backend.routes.composio import composio_bp
 
 
 def register_routes(app):
@@ -13,3 +14,4 @@ def register_routes(app):
     app.register_blueprint(tts_bp, url_prefix="/api")
     app.register_blueprint(clip_bp, url_prefix="/api")
     app.register_blueprint(google_auth_bp, url_prefix="/api")
+    app.register_blueprint(composio_bp, url_prefix="/api")

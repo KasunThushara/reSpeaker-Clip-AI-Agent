@@ -24,6 +24,7 @@ behavior), so the app keeps running without Composio.
 
 import json
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 from langchain_core.tools import tool
@@ -32,9 +33,17 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+# Persisted side-panel selection (survives restarts). Location: project root.
+_TOOLKITS_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    ".composio_toolkits.json",
+)
+
 _client = None      # composio.Composio instance (lazy)
 _session = None     # composio ToolRouterSession (lazy)
 _ready = False      # session init attempted (success or failure)
+_active_toolkits = None   # list[str] or None (None = fall back to settings/persisted)
+_pending_link = None       # (toolkit, redirect_url) of the most recent authorize
 
 # slug -> input schema dict cache, so repeated searches never re-fetch the
 # same tool schema from the Composio backend.
@@ -74,6 +83,40 @@ def _compact(obj, depth: int = 0):
     return obj
 
 
+def _read_persisted_toolkits() -> list | None:
+    """Read the persisted toolkit selection from disk, or None."""
+    try:
+        with open(_TOOLKITS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        tk = data.get("toolkits")
+        if isinstance(tk, list):
+            return [t for t in tk if isinstance(t, str) and t]
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _write_persisted_toolkits(toolkits: list) -> None:
+    """Persist the toolkit selection to disk."""
+    try:
+        with open(_TOOLKITS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"toolkits": toolkits}, f)
+    except OSError as e:
+        logger.warning("Failed to persist composio toolkits: %s", e)
+
+
+def _resolve_toolkits() -> list:
+    """The toolkits to scope the session to.
+
+    Resolution order: runtime override > persisted file > settings default."""
+    if _active_toolkits is not None:
+        return _active_toolkits
+    persisted = _read_persisted_toolkits()
+    if persisted is not None:
+        return persisted
+    return settings.COMPOSIO_TOOLKITS
+
+
 def _get_session():
     """Lazily create (once) and return the Composio session, or None.
 
@@ -99,17 +142,18 @@ def _get_session():
             provider=LanggraphProvider(),
             api_key=settings.COMPOSIO_API_KEY,
         )
+        toolkits = _resolve_toolkits()
         # toolkits whitelist keeps the search space small; the sandbox is
         # disabled so workbench/bash capabilities are not exposed.
         _session = _client.create(
             user_id=settings.USER_ID,
-            toolkits=settings.COMPOSIO_TOOLKITS,
+            toolkits=toolkits,
             sandbox={"enable": False},
         )
         logger.info(
             "Composio session %s ready (toolkits=%s)",
             _session.session_id,
-            settings.COMPOSIO_TOOLKITS,
+            toolkits,
         )
     except Exception as e:  # bad key, backend unreachable, ...
         logger.warning("Composio unavailable: %s", e)
@@ -184,8 +228,9 @@ def _guess_toolkit(tool_slug: str) -> str:
 def composio_search(query: str) -> str:
     """Search Composio for the app tools that match a natural-language request.
     Returns matching tool slugs, short descriptions, and required arguments.
-    Call this FIRST when a task needs an app (GitHub, etc.) not covered by the
-    built-in tools, then call composio_execute with the returned slug."""
+    Call this FIRST for any task that needs to read or act on an external app
+    (Gmail, email, Slack, Trello, GitHub, Notion, Asana, etc.), then call
+    composio_execute with the returned slug."""
     session = _get_session()
     if session is None:
         return "Composio is unavailable: not configured."
@@ -229,7 +274,10 @@ def composio_search(query: str) -> str:
             for s in (_f(r, "primary_tool_slugs", []) or []) + (_f(r, "related_tool_slugs", []) or []):
                 add(s)
 
-    return "\n".join(lines) if lines else "No matching Composio tools found."
+    return "\n".join(lines) if lines else (
+        "No matching tool found. The app may not be selected - please check "
+        "the Tools panel and enable the relevant app, then try again."
+    )
 
 
 @tool
@@ -279,8 +327,9 @@ def composio_execute(tool_slug: str, arguments: str) -> str:
 
 @tool
 def composio_connect(toolkit: str) -> str:
-    """When a Composio tool needs an account connection, call this to get an
-    authorization link for the user. Pass the toolkit slug (e.g. 'github')."""
+    """When a Composio tool needs an account connection, call this to initiate
+    authorization for the user. Pass the toolkit slug (e.g. 'github')."""
+    global _pending_link
     session = _get_session()
     if session is None:
         return "Composio is unavailable: not configured."
@@ -293,7 +342,10 @@ def composio_connect(toolkit: str) -> str:
     url = _f(req, "redirect_url", None)
     if not url:
         return f"Could not create a connection link for {toolkit}."
-    return f"请打开此链接连接 {toolkit}: {url}"
+    _pending_link = (toolkit, url)
+    # Do NOT return the URL to the model. The frontend renders a Connect button
+    # and fetches the cached link when the user clicks it.
+    return f"请点击连接按钮完成 {toolkit} 账号授权,授权完成后告诉我即可。"
 
 
 def get_composio_tools() -> list:
@@ -311,3 +363,128 @@ def get_composio_tools() -> list:
 def composio_enabled() -> bool:
     """True when the Composio tool source is active."""
     return bool(settings.COMPOSIO_API_KEY and _get_session() is not None)
+
+
+def is_toolkit_connected(toolkit: str) -> bool:
+    """True when the given toolkit has an active connection in the session."""
+    session = _get_session()
+    if session is None:
+        return False
+    try:
+        details = session.toolkits()
+        for item in details.items:
+            if _f(item, "slug", "") == toolkit:
+                if _f(item, "is_no_auth", False):
+                    return True
+                conn = _f(item, "connection", None)
+                return bool(conn and _f(conn, "is_active", False))
+    except Exception as e:
+        logger.warning("is_toolkit_connected(%s) failed: %s", toolkit, e)
+    return False
+
+
+def list_connected_toolkits() -> list:
+    """Return the slugs of the currently-active toolkits that are connected."""
+    session = _get_session()
+    if session is None:
+        return []
+    try:
+        connected = []
+        for item in session.toolkits().items:
+            slug = _f(item, "slug", "")
+            if _f(item, "is_no_auth", False):
+                connected.append(slug)
+                continue
+            conn = _f(item, "connection", None)
+            if conn and _f(conn, "is_active", False):
+                connected.append(slug)
+        return connected
+    except Exception as e:
+        logger.warning("list_connected_toolkits failed: %s", e)
+        return []
+
+
+def get_pending_link():
+    """Return (toolkit, redirect_url) of the most recent authorize, or None.
+
+    Used by the frontend Connect button to fetch the link lazily (so the URL is
+    never embedded in the chat reply)."""
+    global _pending_link
+    return _pending_link
+
+
+# --- runtime toolkit selection (side panel) ---------------------------------
+
+def get_composio_toolkits() -> list:
+    """Current active toolkits (runtime override, else settings default)."""
+    return _resolve_toolkits()
+
+
+def set_composio_toolkits(toolkits: list) -> None:
+    """Change the active toolkits and rebuild the session so the choice takes
+    effect immediately (no process restart). The selection is also persisted
+    to disk so it survives restarts."""
+    global _active_toolkits, _session, _ready, _schema_cache
+    _active_toolkits = [t for t in (toolkits or []) if t]
+    _write_persisted_toolkits(_active_toolkits)
+    _session = None
+    _ready = False
+    _schema_cache = {}
+    logger.info("Composio toolkits set to %s (session will rebuild on next use)", _active_toolkits)
+
+
+def list_composio_toolkits() -> list[dict]:
+    """Fetch the full Composio toolkit catalog (or a sensible subset) as a lean
+    list of dicts for the frontend side panel. Includes a `selected` flag based
+    on the current active toolkits."""
+    if not settings.COMPOSIO_API_KEY:
+        return []
+
+    session = _get_session()
+    if _client is None:
+        # _get_session() populates _client; if still None the key/backend failed.
+        return []
+
+    try:
+        items = _client.toolkits.get()
+    except Exception as e:
+        logger.warning("list_composio_toolkits failed: %s", e)
+        return []
+
+    selected = set(_resolve_toolkits())
+    result = []
+    for it in items:
+        slug = _f(it, "slug", "") or ""
+        name = _f(it, "name", "") or slug
+        meta = _f(it, "meta", None) or {}
+        desc = _f(meta, "description", "") or _f(it, "description", "") or ""
+        tools_count = _f(meta, "tools_count", None)
+        logo = _f(meta, "logo", "") or ""
+        no_auth = _f(it, "no_auth", None)
+        auth_schemes = _f(it, "auth_schemes", None) or []
+        composio_managed = _f(it, "composio_managed_auth_schemes", None) or []
+
+        # Derive an auth badge: NO_AUTH, else composio-managed scheme(s), else
+        # the raw auth schemes joined.
+        if no_auth is True or "NO_AUTH" in auth_schemes:
+            auth_badge = "NO_AUTH"
+        elif composio_managed:
+            auth_badge = ", ".join(str(x) for x in composio_managed[:2])
+        elif auth_schemes:
+            auth_badge = ", ".join(str(x) for x in auth_schemes[:2])
+        else:
+            auth_badge = ""
+
+        result.append({
+            "slug": slug,
+            "name": name,
+            "description": (desc or "")[:MAX_DESC],
+            "logo": logo,
+            "tools_count": tools_count,
+            "auth_badge": auth_badge,
+            "is_no_auth": bool(no_auth) if no_auth is not None else None,
+            "selected": slug in selected,
+        })
+    # Sort: selected first, then alphabetical by slug.
+    result.sort(key=lambda x: (not x["selected"], x["slug"]))
+    return result
