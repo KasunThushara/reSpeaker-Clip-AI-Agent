@@ -146,6 +146,18 @@ TOOL_KEYWORDS = (
     "工单",
     "看板",
     "迭代",
+    "github",
+    "repository",
+    "repo",
+    "pull request",
+    "git",
+    "github issue",
+    "trello",
+    "asana",
+    "notion",
+    "board",
+    "boards",
+    "看板",
 )
 
 

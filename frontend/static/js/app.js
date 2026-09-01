@@ -243,6 +243,60 @@ function maybeOfferGmailConnect(responseText, originalRequest) {
     insertGmailConnectButton();
 }
 
+// ---- Composio Connect Link flow -------------------------------------------
+
+// Composio returns a hosted OAuth link (a *.composio.dev URL) when a tool
+// needs an account. Extract it from the assistant reply so the user can open
+// it directly, mirroring the Gmail connect flow.
+let composioShownLinks = new Set();   // avoid rendering the same link twice
+
+function findComposioLinks(text) {
+    const re = /https?:\/\/[^\s<>"']*composio\.dev[^\s<>"']*/gi;
+    const found = text && text.match(re);
+    return found || [];
+}
+
+function insertComposioConnectLink(url) {
+    if (composioShownLinks.has(url)) return;
+    composioShownLinks.add(url);
+    const wrap = document.createElement('div');
+    wrap.className = 'message system';
+    const btn = document.createElement('button');
+    btn.textContent = 'Connect Account';
+    btn.className = 'gmail-connect-btn';   // reuse the Gmail button style for a consistent look
+    btn.addEventListener('click', () => openComposioConnect(url));
+    wrap.appendChild(btn);
+    chatBox.appendChild(wrap);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function openComposioConnect(url) {
+    const win = window.open(url, 'composioConnect', 'width=520,height=680');
+    if (win) return;
+    // Popup blocked: render a direct link as a fallback.
+    const wrap = document.createElement('div');
+    wrap.className = 'message system';
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'Popup blocked - click here to connect';
+    wrap.appendChild(a);
+    chatBox.appendChild(wrap);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function maybeOfferComposioConnect(responseText) {
+    const links = findComposioLinks(responseText);
+    links.forEach(insertComposioConnectLink);
+    // 方案3(预备): 连接完成后的自动确认,对齐 Gmail 的 onGmailAuthorized 闭环。
+    // 后续若要做,需:
+    //   1) 后端加 /api/composio/auth/status?toolkit=...(用 session.toolkits(is_connected=True) 判断)
+    //   2) 前端 window.addEventListener('focus', ...) 里轮询该端点
+    //   3) maybeOfferComposioConnect 增加 originalRequest 参数并存入 pendingComposioRequest,
+    //      连接成功后自动重发原请求(参照 onGmailAuthorized)
+}
+
 // ---- browser microphone input (legacy) ------------------------------------
 
 async function startRecording() {
@@ -295,12 +349,12 @@ async function sendVoice(audioBlob) {
         if (transcript) addMessage('user', transcript);
         if (textResponse) addMessage('assistant', textResponse);
         maybeOfferGmailConnect(textResponse, transcript);
+        maybeOfferComposioConnect(textResponse);
 
         if (response.ok) {
             const audioBlob2 = await response.blob();
             const audioUrl = URL.createObjectURL(audioBlob2);
             audioPlayer.src = audioUrl;
-            audioPlayer.hidden = false;
             audioPlayer.play();
         }
         setStatus('Ready');
@@ -426,6 +480,7 @@ function handleClipSseEvent(eventName, data) {
         if (data.response) addMessage('assistant', data.response);
         rememberConversation(data.conversation_id);
         maybeOfferGmailConnect(data.response, data.transcript);
+        maybeOfferComposioConnect(data.response);
         if (data.response) playTts(data.response);
         setClipUI(false, false);
         setStatus('Ready');
@@ -512,6 +567,7 @@ function handleSseEvent(rawEvent) {
             addMessage('assistant', data.response);
         }
         rememberConversation(data.conversation_id);
+        maybeOfferComposioConnect(data.response);
         maybeOfferGmailConnect(data.response, lastSentText);
         if (data.response) playTts(data.response);
         setStatus('Ready');
@@ -565,7 +621,6 @@ async function playTts(text) {
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
         audioPlayer.src = url;
-        audioPlayer.hidden = false;
         audioPlayer.play();
     } catch (err) {
         console.error('TTS failed', err);

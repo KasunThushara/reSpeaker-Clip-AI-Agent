@@ -33,6 +33,15 @@ class Settings:
     CLIP_MAX_FAILED_ARTIFACTS: int = int(os.getenv("CLIP_MAX_FAILED_ARTIFACTS", "5"))
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
 
+    # Composio: API key + the toolkits exposed to the agent through
+    # Composio sessions (empty string disables the Composio integration).
+    COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "")
+    COMPOSIO_TOOLKITS: list[str] = [
+        t.strip()
+        for t in os.getenv("COMPOSIO_TOOLKITS", "github").split(",")
+        if t.strip()
+    ]
+
     FMP_API_KEY: str = os.getenv("FMP_API_KEY", "")
 
     # Gmail: paths to the OAuth client (credentials.json) and the saved
