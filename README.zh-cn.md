@@ -9,7 +9,7 @@
 - **语音输入 / 语音输出** — Groq Whisper（STT）+ Groq Orpheus（TTS）
 - **带 SSE 流式传输的文本聊天** — token 实时流式传输，然后回答会被语音播放（TTS）
 - **LangGraph 路由器** — 三个分支：`simple`、`agentic`（工具）、`persona`
-- **工具**：网页搜索（Tavily）、计算器、Shopify Global Catalog、Notion 待办列表、对话向量搜索（Pinecone）
+- **工具（混合架构）**：本地工具 — 网页搜索（Tavily）、计算器、对话向量搜索（Pinecone）、FMP 金融（5 个）、Shopify Global Catalog / UCP 买家流程（8 个）— 外加 **Composio 网关**（`search → execute → connect`）用于外部应用（Gmail、Google 日历、Slack、Linear、GitHub、Trello、Asana、Notion 等）
 - **长期记忆** — Mem0（主动召回 + 轮次后提取）
 - **对话历史** — 每个对话保留最近 10 轮
 - **存储**：Supabase PostgreSQL（开发和测试时可回退到 SQLite）
@@ -27,18 +27,18 @@
               ▼             ▼             ▼
           SIMPLE        AGENTIC        PERSONA
                            │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-           Tavily      Calculator    Notion
-              │            │            │
-              │      search_conversations
-              │            │            │
-              │        Pinecone ◄── embeddings
-              │            │
-              └────┬───────┘
-                   ▼
-                 Groq LLM
+              ┌────────────┼───────────────┐
+              │            │               │
+              ▼            ▼               ▼
+        Local tools   search_conversations  Composio 网关
+   (web_search、           │          (composio_search /
+    calculator、FMP、       ▼           composio_execute /
+    Shopify UCP)       Pinecone        composio_connect)
+              │        ◄── embeddings      │
+              │            │               ▼
+              └────┬───────┘          外部应用（Gmail、
+                   ▼                   Calendar、Slack、
+                 Groq LLM              Linear、GitHub 等）
                    │
         ┌──────────┴──────────┐
         ▼                     ▼
@@ -52,6 +52,14 @@
          ▼                     ▼
     TTS（音频）           SSE（文本）
 ```
+
+### 工具架构（混合）
+
+智能体的能力分为三层：
+
+1. **生命周期能力**（不是工具）：每轮对话前 Mem0 主动召回、轮次后记忆保存、最近 10 轮对话历史、Supabase/SQLite 持久化，以及异步的对话摘要 -> 嵌入 -> Pinecone 索引。
+2. **本地工具** — 始终注册，缺失密钥时各自优雅降级：`web_search`（Tavily）、`calculator`、`search_conversations`（Pinecone + 数据库关联）、5 个 FMP 金融工具、8 个 Shopify Global Catalog / UCP 买家流程工具。
+3. **Composio 外部应用网关** — `composio_search` -> `composio_execute` -> `composio_connect`，仅在配置 `COMPOSIO_API_KEY` 时添加。Gmail、Google 日历、Slack、Linear、GitHub、Trello、Asana、Notion 等外部应用只能通过该网关访问；旧的直连集成模块保留在磁盘上但不再注册为工具。只有被选中的工具包可被搜索（默认 `github`），Connect URL 只通过前端 Connect 按钮呈现。
 
 ### reSpeaker Clip 音频输入
 
@@ -93,8 +101,10 @@ sequenceDiagram
 | 后端               | Flask、LangGraph、LangChain agents          |
 | LLM / STT / TTS   | Groq（LLM、Whisper、Orpheus TTS）          |
 | 路由器             | LangGraph（simple / agentic / persona）     |
-| 网页搜索           | Tavily                                      |
-| 待办列表           | Notion                                      |
+| 网页搜索           | Tavily（本地工具）                            |
+| 金融               | Financial Modeling Prep（本地，5 个工具）     |
+| 电商               | Shopify UCP 买家流程（本地，8 个工具）      |
+| 外部应用           | Composio 网关（Gmail、日历、Slack、Linear、GitHub 等） |
 | 长期记忆           | Mem0                                        |
 | 关系型存储         | Supabase PostgreSQL（SQLite 回退）         |
 | 向量存储           | Pinecone（余弦相似度）                      |
@@ -107,9 +117,10 @@ sequenceDiagram
 - **reSpeaker Clip**（可选但推荐的语音输入）。`requirements.txt` 中固定安装了来自 Seeed 仓库提交 `93f86674a...` 的 `respeaker-clip-sdk[ble]`（含 `bleak`）；BLE 需要 Linux/Windows 主机（Linux 需 bluez）。
 - 可选 API 密钥（每个功能在缺失时会优雅降级）：
   - **Tavily** — 网页搜索工具
+  - **Financial Modeling Prep（FMP）** — 金融工具（行情、公司简介、财报、新闻）
+  - **Shopify** — Global Catalog / UCP 买家流程（商品目录、购物车、订单工具）
+  - **Composio** — 外部应用网关（Gmail、日历、Slack、Linear、GitHub 等）；可选，缺失时应用照常运行
   - **Mem0** — 长期记忆
-  - **Notion** — 待办列表工具
-  - **Shopify** — Global Catalog MCP 商品发现和查询
   - **Supabase** — 对话存储（回退到 SQLite）
   - **Pinecone** — 对话向量搜索
 
@@ -159,12 +170,17 @@ Clip 网页按钮为按住录音、松开停止；物理按键同样可以开始
 | `STT_LANGUAGE`           | `en`                       | STT 语言                             |
 | `DATABASE_URL`           | `sqlite:///chat.db`        | SQLite 回退数据库路径                |
 | `TAVILY_API_KEY`         | —                          | 网页搜索工具                         |
+| `FMP_API_KEY`             | —                          | 金融工具（行情、简介、财报、新闻）   |
+| `COMPOSIO_API_KEY`       | —                          | Composio 网关；为空则禁用            |
+| `COMPOSIO_TOOLKITS`      | `github`                   | 可通过网关搜索的工具包（逗号分隔）   |
 | `SHOPIFY_ACCESS_TOKEN`   | —                          | 可选的 Shopify buyer-linked token    |
 | `SHOPIFY_AGENT_PROFILE`  | Shopify 示例 profile       | UCP Agent profile URL                |
+| `SHOPIFY_CLIENT_ID`      | —                          | 订单 MCP 客户端凭据                   |
+| `SHOPIFY_CLIENT_SECRET`  | —                          | 订单 MCP 客户端凭据                   |
 | `MEM0_API_KEY`           | —                          | 长期记忆                             |
 | `MEM0_USER_ID`           | `user-1`                   | Mem0 记忆范围                         |
-| `NOTION_API_KEY`         | —                          | Notion 待办工具                       |
-| `NOTION_DATABASE_ID`     | —                          | Notion "To-Do List" 数据库           |
+| `NOTION_API_KEY`         | —                          | 旧版直接 Notion 模块（保留但未注册）   |
+| `NOTION_DATABASE_ID`     | —                          | 旧版直接 Notion 模块（保留但未注册）   |
 | `USER_ID`                | `user-1`                   | 全系统单用户 ID                       |
 | `SUPABASE_URL`           | —                          | Supabase 项目 URL                     |
 | `SUPABASE_KEY`           | —                          | Supabase 服务角色密钥                 |
@@ -189,13 +205,19 @@ Clip 网页按钮为按住录音、松开停止；物理按键同样可以开始
 
 如果未配置 Supabase，应用会回退到 SQLite（`chat.db`）。
 
-**Notion（待办列表工具）：**
-1. 创建一个 Notion 集成并将密钥粘贴到 `.env`。
-2. 自动创建数据库：
-   ```bash
-   python -c "from backend.tools.notion import setup_notion_database; print(setup_notion_database())"
-   ```
-3. 将返回的数据库 ID 粘贴到 `.env` 作为 `NOTION_DATABASE_ID`。
+**Composio（外部应用网关）：**
+1. 在 composio.dev 创建账号，将 API 密钥写入 `.env` 的 `COMPOSIO_API_KEY`。
+2. `COMPOSIO_TOOLKITS`（默认 `github`）指定智能体可发现的工具包；只有被选中的工具包可被搜索。可在界面 Tools 面板中修改选择，选择会持久化保存并在重启后保留。
+3. 未配置 `COMPOSIO_API_KEY` 时网关禁用，应用仅使用本地工具运行（优雅降级）。连接/授权 URL 只通过前端 Connect 按钮呈现，绝不出现在聊天文本中。
+
+**FMP（金融工具）：**
+将 https://site.financialmodelingprep.com 的 `FMP_API_KEY` 粘贴到 `.env`。
+
+**Shopify（Global Catalog + UCP 买家流程）：**
+商品目录和购物车工具通过 Shopify UCP 工作，不需要客户端凭据；
+`SHOPIFY_ACCESS_TOKEN` 是可选的 buyer-linked token，`SHOPIFY_AGENT_PROFILE`
+用于标识 Agent。仅 `shopify_get_order` 需要配置
+`SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET`。
 
 **Pinecone（对话搜索）：**
 将你的密钥粘贴到 `.env`。启动时应用会自动创建 `conversations` 索引（384 维，余弦相似度），并在每轮对话后异步索引每个对话。
@@ -215,6 +237,11 @@ Clip 网页按钮为按住录音、松开停止；物理按键同样可以开始
 | POST   | `/api/clip/recordings/stop`  | 停止，返回 accepted/session 工作流数据       |
 | POST   | `/api/clip/sessions/<session_id>/ingest` | 会话的幂等重试/入队             |
 | POST   | `/api/clip/context`| `{conversation_id}` 注册当前活动会话               |
+| GET    | `/api/composio/toolkits` | 列出可用与已选中的 Composio 工具包       |
+| POST   | `/api/composio/toolkits` | `{toolkits: [...]}` — 设置并持久化选择   |
+| GET    | `/api/composio/auth/status` | `?toolkit=` — 该工具包是否已连接      |
+| GET    | `/api/composio/auth/connected` | 已连接工具包列表                    |
+| GET    | `/api/composio/connect/link` | 懒加载的连接链接（仅供前端）           |
 
 Clip 错误映射：`400` 输入错误，`409` 状态冲突（如已在录音），`502` 命令/传输失败，`503` 设备不可用/重连中。
 
@@ -241,7 +268,8 @@ event: done       data: {"response": "...", "conversation_id": "..."}
 pytest
 ```
 
-测试使用 SQLite 回退，因此运行时不需要外部服务。Clip 相关测试使用假 BLE 传输 / 假 worker 与本地 SQLite，无需真实硬件或 BLE。覆盖：命令串行化生命周期、超时后重连、退避、下载期间无心跳、网页 START/STOP、物理状态事件、重连对账、首次基线、幂等摄取、原始 Opus→Ogg 固定数据（含损坏/截断输入）以及 API 状态/错误映射。
+测试使用 SQLite 回退，因此运行时不需要外部服务。
+注册表测试验证混合工具集（未配置 Composio 时为 16 个本地工具，配置后为 16 + 3 个 Composio 包装共 19 个，无重名、顺序稳定）；提示词测试验证混合路由与安全措辞。Clip 相关测试使用假 BLE 传输 / 假 worker 与本地 SQLite，无需真实硬件或 BLE。覆盖：命令串行化生命周期、超时后重连、退避、下载期间无心跳、网页 START/STOP、物理状态事件、重连对账、首次基线、幂等摄取、原始 Opus→Ogg 固定数据（含损坏/截断输入）以及 API 状态/错误映射。
 
 ## 项目结构
 
@@ -267,11 +295,14 @@ backend/
       agentic.py             # 带工具的 create_agent
       persona.py             # 风格化 LLM 响应
   tools/
-    registry.py              # get_available_tools()
+    registry.py              # get_available_tools() — 本地工具 + Composio 网关
     search.py                # Tavily 网页搜索
     calculator.py            # 安全表达式求值器
-    notion.py                # 待办列表（添加/列表/完成/删除）
     conversation_search.py   # 搜索过去对话（Pinecone）
+    finance.py               # FMP 金融工具（行情/简介/财报/新闻）
+    shopify.py               # Shopify Global Catalog + UCP 买家流程（8 个工具）
+    composio.py              # Composio 网关包装（search/execute/connect）
+    notion.py                # 旧版直接 Notion 模块（保留但未注册）
   database/
     chat.py                  # 数据库门面（Supabase + SQLite 回退）
     supabase_client.py       # Supabase 客户端
@@ -284,6 +315,8 @@ backend/
   routes/
     chat.py                  # /api/chat + /api/chat/stream（SSE）
     voice.py                 # /api/voice
+    composio.py              # /api/composio/* 工具包选择 + 认证状态
+    google_auth.py           # 旧版直接 Google OAuth 模块（未注册）
     tts.py                   # /api/tts
     health.py                # /api/health
 ```

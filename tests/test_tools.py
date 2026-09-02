@@ -369,18 +369,20 @@ class TestGmail:
         assert "Hi" in decoded
         assert "Body text" in decoded
 
-    def test_gmail_tools_are_registered(self):
+    def test_gmail_tools_are_not_registered(self):
         from backend.tools import get_available_tools
 
         names = [tool.name for tool in get_available_tools()]
-        for expected in (
+        # Gmail direct tools are owned by the Composio gateway in the hybrid architecture, so they must not be
+        # registered as direct local tools.
+        for name in (
             "gmail_search_messages",
             "gmail_get_message",
             "gmail_create_draft",
             "gmail_send_message",
             "gmail_list_labels",
         ):
-            assert expected in names
+            assert name not in names
 
 
 class TestCalendar:
@@ -467,11 +469,13 @@ class TestCalendar:
         lo, hi = _parse_days(365)
         assert (hi - lo).days <= 31  # capped at 31 days
 
-    def test_calendar_tools_are_registered(self):
+    def test_calendar_tools_are_not_registered(self):
         from backend.tools import get_available_tools
 
         names = [tool.name for tool in get_available_tools()]
-        for expected in (
+        # Calendar direct tools are owned by the Composio gateway in the hybrid architecture, so they must not be
+        # registered as direct local tools.
+        for name in (
             "calendar_list_events",
             "calendar_quick_add",
             "calendar_create_event",
@@ -479,7 +483,7 @@ class TestCalendar:
             "calendar_delete_event",
             "calendar_find_free_time",
         ):
-            assert expected in names
+            assert name not in names
 
 
 class TestSlack:
@@ -579,11 +583,13 @@ class TestSlack:
         assert users["U1"] == "alice_dev"
         assert users["U2"] == "Bob Jones"
 
-    def test_slack_tools_are_registered(self):
+    def test_slack_tools_are_not_registered(self):
         from backend.tools import get_available_tools
 
         names = [tool.name for tool in get_available_tools()]
-        for expected in (
+        # Slack direct tools are owned by the Composio gateway in the hybrid architecture, so they must not be
+        # registered as direct local tools.
+        for name in (
             "slack_list_channels",
             "slack_read_channel",
             "slack_read_thread",
@@ -594,7 +600,7 @@ class TestSlack:
             "slack_list_users",
             "slack_set_dnd",
         ):
-            assert expected in names
+            assert name not in names
 
 
 class TestLinear:
@@ -671,11 +677,13 @@ class TestLinear:
         team = {"id": "abc", "name": "Engineering", "key": "ENG"}
         assert _fmt_team(team) == "- Engineering (id: abc, key: ENG)"
 
-    def test_linear_tools_are_registered(self):
+    def test_linear_tools_are_not_registered(self):
         from backend.tools import get_available_tools
 
         names = [tool.name for tool in get_available_tools()]
-        for expected in (
+        # Linear direct tools are owned by the Composio gateway in the hybrid architecture, so they must not be
+        # registered as direct local tools.
+        for name in (
             "linear_list_teams",
             "linear_list_my_issues",
             "linear_search_issues",
@@ -683,4 +691,73 @@ class TestLinear:
             "linear_create_issue",
             "linear_update_issue",
         ):
-            assert expected in names
+            assert name not in names
+
+
+EXPECTED_LOCAL_TOOLS = [
+    "web_search",
+    "calculator",
+    "search_conversations",
+    "finance_search_symbol",
+    "finance_get_quote",
+    "finance_get_profile",
+    "finance_get_income_statement",
+    "finance_get_news",
+    "shopify_search_catalog",
+    "shopify_lookup_catalog",
+    "shopify_get_product",
+    "shopify_create_cart",
+    "shopify_get_cart",
+    "shopify_update_cart",
+    "shopify_cancel_cart",
+    "shopify_get_order",
+]
+
+EXPECTED_COMPOSIO_WRAPPERS = [
+    "composio_search",
+    "composio_execute",
+    "composio_connect",
+]
+
+
+class TestRegistry:
+    """Hybrid tool registry: local tools + optional Composio gateway."""
+
+    def test_local_tools_when_composio_disabled(self, monkeypatch):
+        monkeypatch.setattr(settings, "COMPOSIO_API_KEY", "")
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        assert names == EXPECTED_LOCAL_TOOLS  # exact order and count
+        assert len(names) == 16
+
+    def test_composio_wrappers_when_configured(self, monkeypatch):
+        monkeypatch.setattr(settings, "COMPOSIO_API_KEY", "test-key")
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        assert names == EXPECTED_LOCAL_TOOLS + EXPECTED_COMPOSIO_WRAPPERS
+        assert len(names) == 19
+        assert names[-3:] == EXPECTED_COMPOSIO_WRAPPERS
+
+    def test_no_duplicate_tool_names(self, monkeypatch):
+        monkeypatch.setattr(settings, "COMPOSIO_API_KEY", "test-key")
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        assert len(names) == len(set(names))
+
+    def test_local_tool_names_match_spec(self, monkeypatch):
+        monkeypatch.setattr(settings, "COMPOSIO_API_KEY", "")
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        assert set(names) == set(EXPECTED_LOCAL_TOOLS)
+
+    def test_registry_skips_composio_owned_saas_tools(self, monkeypatch):
+        monkeypatch.setattr(settings, "COMPOSIO_API_KEY", "")
+        from backend.tools import get_available_tools
+
+        names = [tool.name for tool in get_available_tools()]
+        for prefix in ("gmail_", "calendar_", "slack_", "linear_", "notion"):
+            assert not any(n.startswith(prefix) for n in names)

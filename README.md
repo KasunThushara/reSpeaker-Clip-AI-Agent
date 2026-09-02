@@ -9,7 +9,7 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
 - **Voice in / voice out** — Groq Whisper (STT) + Groq Orpheus (TTS)
 - **Text chat with SSE streaming** — tokens stream live, then the answer is spoken (TTS)
 - **LangGraph router** — three branches: `simple`, `agentic` (tools), `persona`
-- **Tools**: web search (Tavily), calculator, Shopify Global Catalog, Notion to-do list, conversation vector search (Pinecone)
+- **Tools (hybrid)**: local tools — web search (Tavily), calculator, conversation vector search (Pinecone), FMP finance (5), Shopify Global Catalog / UCP buyer flow (8) — plus a **Composio gateway** (`search → execute → connect`) for external apps (Gmail, Google Calendar, Slack, Linear, GitHub, Trello, Asana, Notion, ...)
 - **Long-term memory** — Mem0 (proactive recall + post-turn extraction)
 - **Conversation history** — last 10 turns per conversation
 - **Storage**: Supabase PostgreSQL (with a SQLite fallback for development/tests)
@@ -27,17 +27,17 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
               ▼             ▼             ▼
           SIMPLE        AGENTIC        PERSONA
                            │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-           Tavily      Calculator    Notion
-              │            │            │
-              │      search_conversations
-              │            │            │
-              │        Pinecone ◄── embeddings
-              │            │
-              └────┬───────┘
-                   ▼
+              ┌────────────┼───────────────┐
+              │            │               │
+              ▼            ▼               ▼
+        Local tools   search_conversations  Composio gateway
+   (web_search,            │          (composio_search /
+    calculator, FMP,       ▼           composio_execute /
+    Shopify UCP)       Pinecone        composio_connect)
+              │        ◄── embeddings      │
+              │            │               ▼
+              └────┬───────┘          Gmail, Calendar,
+                   ▼                  Slack, Linear, ...
                  Groq LLM
                    │
         ┌──────────┴──────────┐
@@ -52,6 +52,26 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
          ▼                     ▼
     TTS (audio)           SSE (text)
 ```
+
+### Tool architecture (hybrid)
+
+The agent's capabilities are split into three layers:
+
+1. **Lifecycle capabilities** (not tools): Mem0 proactive recall before each
+   turn and post-turn memory save, the last-10-turns conversation history,
+   Supabase/SQLite persistence, and asynchronous conversation summarization ->
+   embedding -> Pinecone indexing.
+2. **Local tools** — always registered, each degrading gracefully when its key
+   is missing: `web_search` (Tavily), `calculator`, `search_conversations`
+   (Pinecone + DB join), 5 FMP finance tools, and 8 Shopify Global Catalog /
+   UCP buyer-flow tools.
+3. **Composio external-app gateway** — `composio_search` -> `composio_execute`
+   -> `composio_connect`, added only when `COMPOSIO_API_KEY` is set. Gmail,
+   Google Calendar, Slack, Linear, GitHub, Trello, Asana, Notion and other
+   external apps are reached only through this gateway; their old direct
+   integration modules are kept on disk but are not registered as tools. Only
+   selected toolkits are searchable (default: `github`), and Connect URLs are
+   surfaced only through the frontend Connect button.
 
 ### reSpeaker Clip audio input
 
@@ -104,8 +124,10 @@ sequenceDiagram
 | Backend           | Flask, LangGraph, LangChain agents          |
 | LLM / STT / TTS   | Groq (LLM, Whisper, Orpheus TTS)            |
 | Router            | LangGraph (simple / agentic / persona)      |
-| Web search        | Tavily                                      |
-| To-do list        | Notion                                      |
+| Web search        | Tavily (local tool)                          |
+| Finance           | Financial Modeling Prep (local, 5 tools)     |
+| Commerce          | Shopify UCP buyer flow (local, 8 tools)      |
+| External apps     | Composio gateway (Gmail, Calendar, Slack, Linear, GitHub, ...) |
 | Long-term memory  | Mem0                                        |
 | Relational store  | Supabase PostgreSQL (SQLite fallback)       |
 | Vector store      | Pinecone (cosine)                           |
@@ -118,11 +140,12 @@ sequenceDiagram
 - **reSpeaker Clip** (optional but recommended voice input). The `respeaker-clip-sdk[ble]` package (with `bleak`) is pinned in `requirements.txt` from the Seeed repo commit `93f86674a...`; BLE needs a Linux/Windows host with Bluetooth (bluez on Linux).
 - Optional API keys (each feature degrades gracefully if missing):
   - **Tavily** — web search tool
+  - **Financial Modeling Prep (FMP)** — finance tools (quotes, profiles, statements, news)
+  - **Shopify** — Global Catalog / UCP buyer flow (catalog, cart, order tools)
+  - **Composio** — external-app gateway (Gmail, Calendar, Slack, Linear, GitHub, ...); optional, app keeps running without it
   - **Mem0** — long-term memory
-  - **Notion** — to-do list tool
   - **Supabase** — conversation storage (falls back to SQLite)
   - **Pinecone** — conversation vector search
-  - **Shopify** — Global Catalog MCP product discovery and lookup
 
 ## Quick start
 
@@ -170,12 +193,17 @@ Copy `.env.example` to `.env` and fill in the values. Only `GROQ_API_KEY` is str
 | `STT_LANGUAGE`          | `en`                       | STT language                         |
 | `DATABASE_URL`          | `sqlite:///chat.db`        | SQLite fallback DB path              |
 | `TAVILY_API_KEY`        | —                          | Web search tool                      |
+| `FMP_API_KEY`            | —                          | Finance tools (quotes, profiles, statements, news) |
+| `COMPOSIO_API_KEY`       | —                          | Composio gateway; empty disables it  |
+| `COMPOSIO_TOOLKITS`      | `github`                   | Toolkits searchable via the gateway (comma-separated) |
 | `SHOPIFY_ACCESS_TOKEN`  | —                          | Optional Shopify buyer-linked token |
 | `SHOPIFY_AGENT_PROFILE` | Shopify example profile   | UCP agent profile URL                |
+| `SHOPIFY_CLIENT_ID`      | —                          | Order MCP client credentials         |
+| `SHOPIFY_CLIENT_SECRET`  | —                          | Order MCP client credentials         |
 | `MEM0_API_KEY`          | —                          | Long-term memory                     |
 | `MEM0_USER_ID`          | `user-1`                   | Mem0 memory scope                    |
-| `NOTION_API_KEY`        | —                          | Notion to-do tool                    |
-| `NOTION_DATABASE_ID`    | —                          | Notion "To-Do List" database         |
+| `NOTION_API_KEY`        | —                          | Legacy direct Notion module (kept, not registered) |
+| `NOTION_DATABASE_ID`    | —                          | Legacy direct Notion module (kept, not registered) |
 | `USER_ID`               | `user-1`                   | Single-user id across the system     |
 | `SUPABASE_URL`          | —                          | Supabase project URL                 |
 | `SUPABASE_KEY`          | —                          | Supabase service-role key            |
@@ -200,13 +228,19 @@ Copy `.env.example` to `.env` and fill in the values. Only `GROQ_API_KEY` is str
 
 If Supabase is not configured, the app falls back to SQLite (`chat.db`).
 
-**Notion (to-do list tool):**
-1. Create a Notion integration and paste the key into `.env`.
-2. Create the database automatically:
-   ```bash
-   python -c "from backend.tools.notion import setup_notion_database; print(setup_notion_database())"
-   ```
-3. Paste the returned database id into `.env` as `NOTION_DATABASE_ID`.
+**Composio (external-app gateway):**
+1. Create an account at composio.dev, put the API key into `.env` as `COMPOSIO_API_KEY`.
+2. `COMPOSIO_TOOLKITS` (default `github`) lists which toolkits the agent may discover; only selected toolkits are searchable. The selection can be changed from the Tools panel in the UI and is persisted across restarts.
+3. When `COMPOSIO_API_KEY` is absent the gateway is disabled and the app runs with the local tools only (graceful fallback). Connect/auth URLs are surfaced only through the frontend Connect button, never in chat text.
+
+**FMP (finance tools):**
+Paste an `FMP_API_KEY` from https://site.financialmodelingprep.com into `.env`.
+
+**Shopify (Global Catalog + UCP buyer flow):**
+The catalog and cart tools use Shopify UCP and work without client credentials;
+`SHOPIFY_ACCESS_TOKEN` is an optional buyer-linked token and
+`SHOPIFY_AGENT_PROFILE` identifies the agent. Configure
+`SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` only for `shopify_get_order`.
 
 **Pinecone (conversation search):**
 Paste your key into `.env`. On startup the app auto-creates the `conversations` index (384-dim, cosine) and indexes each conversation asynchronously after every turn.
@@ -226,6 +260,11 @@ Paste your key into `.env`. On startup the app auto-creates the `conversations` 
 | POST   | `/api/clip/recordings/stop`  | Stop, returns accepted/session workflow data |
 | POST   | `/api/clip/sessions/<session_id>/ingest` | Idempotent retry/enqueue of a session |
 | POST   | `/api/clip/context`| `{conversation_id}` register the active conversation |
+| GET    | `/api/composio/toolkits` | List available + selected Composio toolkits   |
+| POST   | `/api/composio/toolkits` | `{toolkits: [...]}` — set and persist selection |
+| GET    | `/api/composio/auth/status` | `?toolkit=` — is the toolkit connected?  |
+| GET    | `/api/composio/auth/connected` | List of connected toolkits             |
+| GET    | `/api/composio/connect/link` | Lazily-cached connect link (frontend)    |
 
 Clip error mapping: `400` bad input, `409` state conflict (e.g. already recording),
 `502` command/transfer failure, `503` device unavailable / reconnecting.
@@ -261,6 +300,9 @@ idempotent ingestion, raw Opus→Ogg fixtures (including corrupt/truncated input
 API status/error mappings.
 
 Tests use the SQLite fallback, so no external services are needed to run them.
+Registry tests verify the hybrid tool set (16 local tools when Composio is
+disabled, 19 with the 3 Composio wrappers when configured, no duplicates,
+stable ordering); prompt tests verify the hybrid routing and safety wording.
 
 ## Project structure
 
@@ -286,11 +328,14 @@ backend/
       agentic.py             # create_agent with tools
       persona.py             # Styled LLM response
   tools/
-    registry.py              # get_available_tools()
+    registry.py              # get_available_tools() — local tools + Composio gateway
     search.py                # Tavily web search
     calculator.py            # Safe expression evaluator
-    notion.py                # To-do list (add/list/complete/delete)
     conversation_search.py   # Search past conversations (Pinecone)
+    finance.py               # FMP finance tools (quotes, profile, statements, news)
+    shopify.py               # Shopify Global Catalog + UCP buyer flow (8 tools)
+    composio.py              # Composio gateway wrappers (search/execute/connect)
+    notion.py                # Legacy direct Notion module (kept, not registered)
   database/
     chat.py                  # DB facade (Supabase + SQLite fallback)
     supabase_client.py       # Supabase client
@@ -303,6 +348,8 @@ backend/
   routes/
     chat.py                  # /api/chat + /api/chat/stream (SSE)
     voice.py                 # /api/voice
+    composio.py              # /api/composio/* toolkit selection + auth status
+    google_auth.py           # Legacy direct Google OAuth module (not registered)
     tts.py                   # /api/tts
     health.py                # /api/health
 ```

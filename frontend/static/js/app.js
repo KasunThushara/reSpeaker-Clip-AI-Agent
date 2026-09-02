@@ -137,112 +137,6 @@ function rememberConversation(cid) {
     registerContext(cid);
 }
 
-// ---- Gmail OAuth connect flow ---------------------------------------------
-
-let pendingGmailRequest = null;   // the user request blocked on authorization
-let gmailConnectButtons = [];     // live Connect buttons (disabled after success)
-let gmailAuthInFlight = false;    // guards against double-starting the flow
-let gmailAuthorized = false;      // once true, ignore further auth notifications
-
-function looksLikeGmailConnectHint(text) {
-    return /gmail[^.]{0,40}not connected|not connected[^.]{0,40}gmail|connect[^.]{0,20}google account|连接.{0,6}google\s*账号|连接.{0,6}谷歌\s*账号|google\s*账号.{0,8}未\s*连接|谷歌\s*账号.{0,8}未\s*连接|日历.{0,10}未\s*连接|日历.{0,10}无法\s*使用|gmail.{0,10}未\s*连接|gmail.{0,10}无法\s*使用/i.test(text || '');
-}
-
-function insertGmailConnectButton() {
-    const wrap = document.createElement('div');
-    wrap.className = 'message system';
-    const btn = document.createElement('button');
-    btn.textContent = 'Connect Google Account';
-    btn.className = 'gmail-connect-btn';
-    btn.addEventListener('click', startGmailAuth);
-    wrap.appendChild(btn);
-    chatBox.appendChild(wrap);
-    chatBox.scrollTop = chatBox.scrollHeight;
-    // Keep a handle so the button can be disabled after a successful connect.
-    gmailConnectButtons.push(btn);
-}
-
-function insertAuthLink(url) {
-    const wrap = document.createElement('div');
-    wrap.className = 'message system';
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.textContent = 'Popup blocked — click here to authorize Gmail';
-    wrap.appendChild(a);
-    chatBox.appendChild(wrap);
-    chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-async function startGmailAuth() {
-    if (gmailAuthInFlight || gmailAuthorized) return;
-    gmailAuthInFlight = true;
-    setStatus('Waiting for Google authorization...');
-    try {
-        const resp = await fetch('/api/gmail/auth/start');
-        const data = await resp.json();
-        if (!resp.ok) {
-            addMessage('assistant', 'Error: ' + (data.error || 'failed to start authorization'));
-            setStatus('Error', true);
-            return;
-        }
-        if (data.status === 'already_authorized') {
-            onGmailAuthorized();
-            return;
-        }
-        const win = window.open(data.auth_url, 'gmailAuth', 'width=520,height=680');
-        if (!win) insertAuthLink(data.auth_url);
-    } catch (err) {
-        setStatus('Error: ' + err.message, true);
-        console.error(err);
-    } finally {
-        gmailAuthInFlight = false;
-    }
-}
-
-function onGmailAuthorized() {
-    if (gmailAuthorized) return;   // postMessage + focus-check can both fire
-    gmailAuthorized = true;
-    // Disable every Connect button still in the chat history.
-    gmailConnectButtons.forEach((b) => { b.disabled = true; b.textContent = '✓ Connected'; });
-    addMessage('assistant', '✅ Google account connected (Gmail + Calendar).');
-    setStatus('Ready');
-    if (pendingGmailRequest) {
-        const text = pendingGmailRequest;
-        pendingGmailRequest = null;
-        sendTextChat(text);
-    }
-}
-
-function onGmailAuthError(message) {
-    addMessage('assistant', 'Gmail authorization failed: ' + (message || 'unknown error') + '. You can try the Connect Gmail button again.');
-    setStatus('Error', true);
-}
-
-window.addEventListener('message', (e) => {
-    if (!e.data || typeof e.data !== 'object') return;
-    if (e.data.type === 'gmail_authorized') onGmailAuthorized();
-    else if (e.data.type === 'gmail_auth_error') onGmailAuthError(e.data.error);
-});
-
-// Fallback for popups blocked into a plain tab (opener is null there):
-// check once when the main window regains focus.
-window.addEventListener('focus', () => {
-    if (!pendingGmailRequest) return;
-    fetch('/api/gmail/auth/status')
-        .then((r) => r.json())
-        .then((s) => { if (s.authorized) onGmailAuthorized(); })
-        .catch(() => {});
-});
-
-function maybeOfferGmailConnect(responseText, originalRequest) {
-    if (gmailAuthorized) return;   // already connected; no need to offer again
-    if (!looksLikeGmailConnectHint(responseText)) return;
-    pendingGmailRequest = originalRequest || null;
-    insertGmailConnectButton();
-}
-
 // ---- Composio Connect Link flow -------------------------------------------
 
 // Composio returns a hosted OAuth link (a *.composio.dev URL) when a tool
@@ -265,7 +159,7 @@ function insertComposioConnectButton(replyText) {
     wrap.className = 'message system';
     const btn = document.createElement('button');
     btn.textContent = 'Connect Account';
-    btn.className = 'gmail-connect-btn';
+    btn.className = 'connect-btn';
     btn.addEventListener('click', openComposioConnect);
     wrap.appendChild(btn);
     chatBox.appendChild(wrap);
@@ -374,7 +268,6 @@ async function sendVoice(audioBlob) {
 
         if (transcript) addMessage('user', transcript);
         if (textResponse) addMessage('assistant', textResponse);
-        maybeOfferGmailConnect(textResponse, transcript);
         maybeOfferComposioConnect(textResponse, transcript);
 
         if (response.ok) {
@@ -505,7 +398,6 @@ function handleClipSseEvent(eventName, data) {
         if (data.transcript) addMessage('user', data.transcript);
         if (data.response) addMessage('assistant', data.response);
         rememberConversation(data.conversation_id);
-        maybeOfferGmailConnect(data.response, data.transcript);
         maybeOfferComposioConnect(data.response, data.transcript);
         if (data.response) playTts(data.response);
         setClipUI(false, false);
@@ -594,7 +486,6 @@ function handleSseEvent(rawEvent) {
         }
         rememberConversation(data.conversation_id);
         maybeOfferComposioConnect(data.response, lastSentText);
-        maybeOfferGmailConnect(data.response, lastSentText);
         if (data.response) playTts(data.response);
         setStatus('Ready');
     } else if (event === 'error') {
