@@ -16,48 +16,16 @@ Supabase/SQLite persistence, async summarization/embedding/Pinecone
 indexing) are NOT tools and remain outside this registry.
 """
 
-from backend.tools.search import web_search
 from backend.tools.calculator import calculator
 from backend.tools.conversation_search import search_conversations
-from backend.tools.finance import (
-    finance_search_symbol,
-    finance_get_quote,
-    finance_get_profile,
-    finance_get_income_statement,
-    finance_get_news,
-)
-from backend.tools.shopify import (
-    shopify_search_catalog,
-    shopify_lookup_catalog,
-    shopify_get_product,
-    shopify_create_cart,
-    shopify_get_cart,
-    shopify_update_cart,
-    shopify_cancel_cart,
-    shopify_get_order,
-)
 from backend.tools.composio import get_composio_tools
 
 # Deterministic order: local tools first, then the Composio gateway wrappers.
 # External SaaS integrations (Gmail, Calendar, Slack, Linear, ...) are owned
 # by the Composio gateway, not registered here as direct tools.
 LOCAL_TOOLS = [
-    web_search,
     calculator,
     search_conversations,
-    finance_search_symbol,
-    finance_get_quote,
-    finance_get_profile,
-    finance_get_income_statement,
-    finance_get_news,
-    shopify_search_catalog,
-    shopify_lookup_catalog,
-    shopify_get_product,
-    shopify_create_cart,
-    shopify_get_cart,
-    shopify_update_cart,
-    shopify_cancel_cart,
-    shopify_get_order,
 ]
 
 

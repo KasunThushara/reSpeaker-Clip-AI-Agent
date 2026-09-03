@@ -12,6 +12,12 @@ from backend.utils.text import extract_answer, strip_thinking
 chat_bp = Blueprint("chat", __name__)
 _graph = None
 
+_TOOL_MUST_USE = (
+    "系统要求:回答这个问题前,你必须先检查本地工具能否处理;"
+    "若不能,必须先调用 composio_search 搜索相关工具,"
+    "必要时再调用 composio_execute 获取最新数据,拿到工具结果后才能作答。"
+    "不得仅凭对话历史或记忆直接回答。"
+)
 
 def _get_graph():
     global _graph
@@ -102,7 +108,7 @@ def _stream_agent(text, memories, history, conversation_id):
     from backend.graph.nodes.agentic import _get_agent, MAX_AGENT_ITERATIONS
 
     agent = _get_agent()
-    user_message = format_memories(memories) + text
+    user_message = _TOOL_MUST_USE + "\n" + format_memories(memories) + text
     messages = [*history, ("user", user_message)]
     config = {"recursion_limit": MAX_AGENT_ITERATIONS}
 
