@@ -58,6 +58,32 @@ h1 {
     font-style: italic;
 }
 
+.connect-btn {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 8px;
+    background: #0f3460;
+    color: #fff;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.connect-btn:hover {
+    background: #1a4a8a;
+}
+
+.connect-btn:disabled {
+    background: #4a5568;
+    cursor: default;
+    opacity: 0.7;
+}
+
+.message.system a {
+    color: #533483;
+    font-style: normal;
+}
+
 .message.user {
     background: #0f3460;
     color: #eee;
@@ -156,4 +182,292 @@ h1 {
 
 .send-btn:hover {
     background: #c23a51;
+}
+
+/* ---- reSpeaker Clip controls ---- */
+
+.btn-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+}
+
+.clip-btn {
+    background: #2e7d32;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: none;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+    touch-action: none;
+    user-select: none;
+}
+
+.clip-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(46, 125, 50, 0.4);
+}
+
+.clip-btn.recording {
+    background: #ff1744;
+    transform: scale(1.1);
+    box-shadow: 0 0 30px rgba(255, 23, 68, 0.6);
+    animation: pulse 1s infinite;
+}
+
+.clip-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    animation: none;
+}
+
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: #888;
+}
+
+.input-row select {
+    background: #16213e;
+    color: #eee;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+}
+
+#clipStatusLine {
+    font-size: 0.78rem;
+    color: #6a9fb5;
+    min-height: 1.1em;
+}
+
+#clipStatusLine.error {
+    color: #e94560;
+}
+
+/* ---- Composio tools side panel ---- */
+
+.tools-btn {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 8px;
+    background: #0f3460;
+    color: #fff;
+    font-size: 0.9rem;
+    cursor: pointer;
+    z-index: 1000;
+    transition: background 0.15s;
+}
+
+.tools-btn:hover {
+    background: #1a4a8a;
+}
+
+.tools-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1001;
+}
+
+/* `hidden` attribute must win over the display rules above, otherwise the
+   sidebar/overlay can't be closed (or starts open). */
+.tools-sidebar[hidden],
+.tools-overlay[hidden] {
+    display: none;
+}
+
+.tools-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 300px;
+    background: #16213e;
+    z-index: 1002;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 2px 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.tools-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #eee;
+    border-bottom: 1px solid #2a2a4a;
+}
+
+.tools-close-btn {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 1.4rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.tools-close-btn:hover {
+    color: #eee;
+}
+
+.tools-search {
+    margin: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 0.9rem;
+    outline: none;
+}
+
+.tools-search:focus {
+    border-color: #e94560;
+}
+
+.tools-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tools-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+    border: 1px solid transparent;
+}
+
+.tools-item:hover {
+    background: #1a1a2e;
+}
+
+.tools-item.selected {
+    border-color: #e94560;
+    background: rgba(233, 69, 96, 0.08);
+}
+
+.tools-item input[type="checkbox"] {
+    accent-color: #e94560;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin: 0;
+}
+
+.tools-item-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: #0f3460;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-transform: uppercase;
+}
+
+.tools-item-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.tools-item-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.tools-item-name {
+    font-size: 0.9rem;
+    color: #ddd;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tools-item-slug {
+    font-size: 0.7rem;
+    color: #777;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.tools-item-meta {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.tools-item-badge {
+    font-size: 0.62rem;
+    color: #9e8cf0;
+    background: rgba(158, 140, 240, 0.14);
+    padding: 2px 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.tools-item-count {
+    font-size: 0.68rem;
+    color: #666;
+    white-space: nowrap;
+}
+
+.tools-sidebar-footer {
+    padding: 12px;
+    border-top: 1px solid #2a2a4a;
+}
+
+.tools-sidebar-footer .connect-btn {
+    width: 100%;
+}
+
+.tools-empty {
+    padding: 20px 0;
+    text-align: center;
+    color: #666;
+    font-size: 0.85rem;
 }

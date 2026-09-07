@@ -14,3 +14,6 @@ build/
 .DS_Store
 credentials.json
 token.json
+.composio_toolkits.json
+# Clip temp audio (downloaded sessions / re-container Ogg files)
+clip_audio/

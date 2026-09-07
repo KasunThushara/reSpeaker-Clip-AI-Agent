@@ -17,7 +17,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "SUPABASE_URL", "")
     monkeypatch.setattr(settings, "SUPABASE_KEY", "")
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/chat.db")
-    app = create_app()
+    monkeypatch.setattr(settings, "VOICE_INPUT_MODE", "browser")
+    app = create_app(clip_enabled=False)
     return app.test_client()
 
 

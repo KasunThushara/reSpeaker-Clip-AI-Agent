@@ -21,7 +21,46 @@ class Settings:
     STT_PROMPT: str = os.getenv("STT_PROMPT", "")
     STT_LANGUAGE: str = os.getenv("STT_LANGUAGE", "en")
 
+
+    # --- reSpeaker Clip input ---
+    VOICE_INPUT_MODE: str = os.getenv("VOICE_INPUT_MODE", "both")
+    CLIP_BLE_ADDRESS: str = os.getenv("CLIP_BLE_ADDRESS", "")
+    CLIP_BLE_NAME: str = os.getenv("CLIP_BLE_NAME", "Clip")
+    CLIP_RECORD_MODE: str = os.getenv("CLIP_RECORD_MODE", "enhanced")
+    CLIP_STATUS_INTERVAL: int = int(os.getenv("CLIP_STATUS_INTERVAL", "5"))
+    CLIP_DOWNLOAD_TIMEOUT: int = int(os.getenv("CLIP_DOWNLOAD_TIMEOUT", "300"))
+    CLIP_TEMP_DIR: str = os.getenv("CLIP_TEMP_DIR", "clip_audio")
+    CLIP_MAX_FAILED_ARTIFACTS: int = int(os.getenv("CLIP_MAX_FAILED_ARTIFACTS", "5"))
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+
+    # Composio: API key + the toolkits exposed to the agent through
+    # Composio sessions (empty string disables the Composio integration).
+    COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "")
+    COMPOSIO_TOOLKITS: list[str] = [
+        t.strip()
+        for t in os.getenv("COMPOSIO_TOOLKITS", "github").split(",")
+        if t.strip()
+    ]
+
+    FMP_API_KEY: str = os.getenv("FMP_API_KEY", "")
+
+    # Legacy direct SaaS modules. These settings remain for compatibility,
+    # but the hybrid registry routes these apps through Composio.
+    GMAIL_CREDENTIALS_FILE: str = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")
+    GMAIL_TOKEN_FILE: str = os.getenv("GMAIL_TOKEN_FILE", "token.json")
+
+    SLACK_BOT_TOKEN: str = os.getenv("SLACK_BOT_TOKEN", "")
+    SLACK_USER_TOKEN: str = os.getenv("SLACK_USER_TOKEN", "")
+
+    LINEAR_API_KEY: str = os.getenv("LINEAR_API_KEY", "")
+
+    SHOPIFY_ACCESS_TOKEN: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+    SHOPIFY_AGENT_PROFILE: str = os.getenv(
+        "SHOPIFY_AGENT_PROFILE",
+        "https://shopify.dev/ucp/agent-profiles/examples/2026-04-08/valid-with-capabilities.json",
+    )
+    SHOPIFY_CLIENT_ID: str = os.getenv("SHOPIFY_CLIENT_ID", "")
+    SHOPIFY_CLIENT_SECRET: str = os.getenv("SHOPIFY_CLIENT_SECRET", "")
 
     MEM0_API_KEY: str = os.getenv("MEM0_API_KEY", "")
     MEM0_USER_ID: str = os.getenv("MEM0_USER_ID", "user-1")

@@ -9,7 +9,7 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
 - **Voice in / voice out** — Groq Whisper (STT) + Groq Orpheus (TTS)
 - **Text chat with SSE streaming** — tokens stream live, then the answer is spoken (TTS)
 - **LangGraph router** — three branches: `simple`, `agentic` (tools), `persona`
-- **Tools**: web search (Tavily), calculator, Notion to-do list, conversation vector search (Pinecone)
+- **Tools (hybrid)**: local tools — web search (Tavily), calculator, conversation vector search (Pinecone), FMP finance (5), Shopify Global Catalog / UCP buyer flow (8) — plus a **Composio gateway** (`search → execute → connect`) for external apps (Gmail, Google Calendar, Slack, Linear, GitHub, Trello, Asana, Notion, ...)
 - **Long-term memory** — Mem0 (proactive recall + post-turn extraction)
 - **Conversation history** — last 10 turns per conversation
 - **Storage**: Supabase PostgreSQL (with a SQLite fallback for development/tests)
@@ -27,17 +27,17 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
               ▼             ▼             ▼
           SIMPLE        AGENTIC        PERSONA
                            │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-           Tavily      Calculator    Notion
-              │            │            │
-              │      search_conversations
-              │            │            │
-              │        Pinecone ◄── embeddings
-              │            │
-              └────┬───────┘
-                   ▼
+              ┌────────────┼───────────────┐
+              │            │               │
+              ▼            ▼               ▼
+        Local tools   search_conversations  Composio gateway
+   (web_search,            │          (composio_search /
+    calculator, FMP,       ▼           composio_execute /
+    Shopify UCP)       Pinecone        composio_connect)
+              │        ◄── embeddings      │
+              │            │               ▼
+              └────┬───────┘          Gmail, Calendar,
+                   ▼                  Slack, Linear, ...
                  Groq LLM
                    │
         ┌──────────┴──────────┐
@@ -52,6 +52,46 @@ The architecture follows an Omi-style chat system: a LangGraph router classifies
          ▼                     ▼
     TTS (audio)           SSE (text)
 ```
+
+### Tool architecture (hybrid)
+
+The agent's capabilities are split into three layers:
+
+1. **Lifecycle capabilities** (not tools): Mem0 proactive recall before each
+   turn and post-turn memory save, the last-10-turns conversation history,
+   Supabase/SQLite persistence, and asynchronous conversation summarization ->
+   embedding -> Pinecone indexing.
+2. **Local tools** — always registered, each degrading gracefully when its key
+   is missing: `web_search` (Tavily), `calculator`, `search_conversations`
+   (Pinecone + DB join), 5 FMP finance tools, and 8 Shopify Global Catalog /
+   UCP buyer-flow tools.
+3. **Composio external-app gateway** — `composio_search` -> `composio_execute`
+   -> `composio_connect`, added only when `COMPOSIO_API_KEY` is set. Gmail,
+   Google Calendar, Slack, Linear, GitHub, Trello, Asana, Notion and other
+   external apps are reached only through this gateway; their old direct
+   integration modules are kept on disk but are not registered as tools. Only
+   selected toolkits are searchable (default: `github`), and Connect URLs are
+   surfaced only through the frontend Connect button.
+
+### reSpeaker Clip audio input
+
+The browser can be replaced (or complemented) by a **reSpeaker Clip** worn device. A
+`ClipRuntime` runs on a dedicated asyncio daemon thread inside Flask and owns exactly
+**one long-lived BLE connection** to the Clip:
+
+- A background supervisor connects by `CLIP_BLE_ADDRESS` (or scans `CLIP_BLE_NAME`),
+  sends a status heartbeat every `CLIP_STATUS_INTERVAL`, and reconnects with
+  1/2/4/8/16/30 s jittered backoff. Only the supervisor connects/reconnects.
+- Firmware `state` events and GSTAT polling reconcile to one recording state, so a
+  physical button press or a missed event during a disconnect is still handled.
+- A stopped session automatically enters an **ingestion workflow**:
+  `download (Ogg .opus packets) → re-container to one Ogg Opus file → Groq Whisper →
+  shared LangGraph pipeline`. Progress is persisted in a `clip_ingestions` table
+  (SQLite and/or Supabase) keyed by `(device_id, session_id)`; repeated events and
+  HTTP retries never duplicate work, and the very first integration baseline marks
+  pre-existing device sessions `ignored_existing`.
+- The shared `AudioService` processes both browser bytes (`POST /api/voice`) and Clip
+  Ogg files so STT → LangGraph → persistence/memory → TTS is identical for each.
 
 ### Conversation vector search flow
 
@@ -84,8 +124,10 @@ sequenceDiagram
 | Backend           | Flask, LangGraph, LangChain agents          |
 | LLM / STT / TTS   | Groq (LLM, Whisper, Orpheus TTS)            |
 | Router            | LangGraph (simple / agentic / persona)      |
-| Web search        | Tavily                                      |
-| To-do list        | Notion                                      |
+| Web search        | Tavily (local tool)                          |
+| Finance           | Financial Modeling Prep (local, 5 tools)     |
+| Commerce          | Shopify UCP buyer flow (local, 8 tools)      |
+| External apps     | Composio gateway (Gmail, Calendar, Slack, Linear, GitHub, ...) |
 | Long-term memory  | Mem0                                        |
 | Relational store  | Supabase PostgreSQL (SQLite fallback)       |
 | Vector store      | Pinecone (cosine)                           |
@@ -95,10 +137,13 @@ sequenceDiagram
 
 - Python 3.10+
 - A **Groq API key** (required — powers LLM, STT, TTS)
+- **reSpeaker Clip** (optional but recommended voice input). The `respeaker-clip-sdk[ble]` package (with `bleak`) is pinned in `requirements.txt` from the Seeed repo commit `93f86674a...`; BLE needs a Linux/Windows host with Bluetooth (bluez on Linux).
 - Optional API keys (each feature degrades gracefully if missing):
   - **Tavily** — web search tool
+  - **Financial Modeling Prep (FMP)** — finance tools (quotes, profiles, statements, news)
+  - **Shopify** — Global Catalog / UCP buyer flow (catalog, cart, order tools)
+  - **Composio** — external-app gateway (Gmail, Calendar, Slack, Linear, GitHub, ...); optional, app keeps running without it
   - **Mem0** — long-term memory
-  - **Notion** — to-do list tool
   - **Supabase** — conversation storage (falls back to SQLite)
   - **Pinecone** — conversation vector search
 
@@ -124,7 +169,13 @@ cp .env.example .env          # then fill in your keys (see Configuration)
 python app.py
 ```
 
-Open http://localhost:5000 — use the mic button (hold to speak) or the text box (the answer streams, then plays as audio).
+Open http://localhost:5000. The input depends on `VOICE_INPUT_MODE`:
+
+- **`both`** (default, development) — manual selector between **reSpeaker Clip** and the browser mic.
+- **`clip`** (production) — Clip only; no `getUserMedia`, the web button calls the Clip start/stop APIs and the Clip physical button works the same way.
+- **`browser`** — legacy system-mic push-to-talk only.
+
+The Clip web button is click-to-toggle (click once to start, click again to stop), the physical button starts/stops recordings too, and both render the transcript/answer and play the reply through `/api/tts`. Clip control is disabled while the device is offline or a session is being processed.
 
 ## Configuration
 
@@ -142,10 +193,17 @@ Copy `.env.example` to `.env` and fill in the values. Only `GROQ_API_KEY` is str
 | `STT_LANGUAGE`          | `en`                       | STT language                         |
 | `DATABASE_URL`          | `sqlite:///chat.db`        | SQLite fallback DB path              |
 | `TAVILY_API_KEY`        | —                          | Web search tool                      |
+| `FMP_API_KEY`            | —                          | Finance tools (quotes, profiles, statements, news) |
+| `COMPOSIO_API_KEY`       | —                          | Composio gateway; empty disables it  |
+| `COMPOSIO_TOOLKITS`      | `github`                   | Toolkits searchable via the gateway (comma-separated) |
+| `SHOPIFY_ACCESS_TOKEN`  | —                          | Optional Shopify buyer-linked token |
+| `SHOPIFY_AGENT_PROFILE` | Shopify example profile   | UCP agent profile URL                |
+| `SHOPIFY_CLIENT_ID`      | —                          | Order MCP client credentials         |
+| `SHOPIFY_CLIENT_SECRET`  | —                          | Order MCP client credentials         |
 | `MEM0_API_KEY`          | —                          | Long-term memory                     |
 | `MEM0_USER_ID`          | `user-1`                   | Mem0 memory scope                    |
-| `NOTION_API_KEY`        | —                          | Notion to-do tool                    |
-| `NOTION_DATABASE_ID`    | —                          | Notion "To-Do List" database         |
+| `NOTION_API_KEY`        | —                          | Legacy direct Notion module (kept, not registered) |
+| `NOTION_DATABASE_ID`    | —                          | Legacy direct Notion module (kept, not registered) |
 | `USER_ID`               | `user-1`                   | Single-user id across the system     |
 | `SUPABASE_URL`          | —                          | Supabase project URL                 |
 | `SUPABASE_KEY`          | —                          | Supabase service-role key            |
@@ -153,22 +211,36 @@ Copy `.env.example` to `.env` and fill in the values. Only `GROQ_API_KEY` is str
 | `PINECONE_INDEX_NAME`   | `conversations`            | Pinecone index name                  |
 | `PINECONE_REGION`       | `us-east-1`                | Pinecone serverless region           |
 | `EMBEDDING_MODEL`       | `all-MiniLM-L6-v2`         | Local embedding model                |
+| `VOICE_INPUT_MODE`      | `both`                     | `clip` / `both` / `browser`          |
+| `CLIP_BLE_ADDRESS`      | —                          | Clip BLE address (else scan by name) |
+| `CLIP_BLE_NAME`         | `Clip`                     | BLE name substring to scan for       |
+| `CLIP_RECORD_MODE`      | `enhanced`                 | `normal` or `enhanced`               |
+| `CLIP_STATUS_INTERVAL`  | `5`                        | Status heartbeat seconds             |
+| `CLIP_DOWNLOAD_TIMEOUT` | `300`                      | Per-session download timeout (s)     |
+| `CLIP_TEMP_DIR`         | `clip_audio`               | Local temp audio dir                 |
+| `CLIP_MAX_FAILED_ARTIFACTS` | `5`                   | Bounded failed-artifact retention    |
 
 ### Optional one-time setup
 
 **Supabase (conversation storage):**
 1. Create a Supabase project, copy `SUPABASE_URL` + the service-role key into `.env`.
-2. Open the **SQL Editor** and run the schema in `supabase_schema.sql` (creates `users`, `conversations`, `messages` and seeds `user-1`).
+2. Open the **SQL Editor** and run `supabase_schema.sql` (creates the conversation tables plus `clip_ingestions`/`clip_device_state`, and seeds `user-1`).
 
 If Supabase is not configured, the app falls back to SQLite (`chat.db`).
 
-**Notion (to-do list tool):**
-1. Create a Notion integration and paste the key into `.env`.
-2. Create the database automatically:
-   ```bash
-   python -c "from backend.tools.notion import setup_notion_database; print(setup_notion_database())"
-   ```
-3. Paste the returned database id into `.env` as `NOTION_DATABASE_ID`.
+**Composio (external-app gateway):**
+1. Create an account at composio.dev, put the API key into `.env` as `COMPOSIO_API_KEY`.
+2. `COMPOSIO_TOOLKITS` (default `github`) lists which toolkits the agent may discover; only selected toolkits are searchable. The selection can be changed from the Tools panel in the UI and is persisted across restarts.
+3. When `COMPOSIO_API_KEY` is absent the gateway is disabled and the app runs with the local tools only (graceful fallback). Connect/auth URLs are surfaced only through the frontend Connect button, never in chat text.
+
+**FMP (finance tools):**
+Paste an `FMP_API_KEY` from https://site.financialmodelingprep.com into `.env`.
+
+**Shopify (Global Catalog + UCP buyer flow):**
+The catalog and cart tools use Shopify UCP and work without client credentials;
+`SHOPIFY_ACCESS_TOKEN` is an optional buyer-linked token and
+`SHOPIFY_AGENT_PROFILE` identifies the agent. Configure
+`SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` only for `shopify_get_order`.
 
 **Pinecone (conversation search):**
 Paste your key into `.env`. On startup the app auto-creates the `conversations` index (384-dim, cosine) and indexes each conversation asynchronously after every turn.
@@ -182,6 +254,29 @@ Paste your key into `.env`. On startup the app auto-creates the `conversations` 
 | POST   | `/api/chat/stream`| Text chat → SSE (`thinking`, `token`, `done`)      |
 | POST   | `/api/voice`      | Audio → STT → chat → TTS → `audio/wav`             |
 | POST   | `/api/tts`        | `{text}` → `audio/wav`                             |
+| GET    | `/api/clip/status`| Clip connection/recording status                   |
+| GET    | `/api/clip/events`| SSE: `connection`, `recording`, `workflow`, `result`|
+| POST   | `/api/clip/recordings/start` | `{mode?, conversation_id?}` start recording |
+| POST   | `/api/clip/recordings/stop`  | Stop, returns accepted/session workflow data |
+| POST   | `/api/clip/sessions/<session_id>/ingest` | Idempotent retry/enqueue of a session |
+| POST   | `/api/clip/context`| `{conversation_id}` register the active conversation |
+| GET    | `/api/composio/toolkits` | List available + selected Composio toolkits   |
+| POST   | `/api/composio/toolkits` | `{toolkits: [...]}` — set and persist selection |
+| GET    | `/api/composio/auth/status` | `?toolkit=` — is the toolkit connected?  |
+| GET    | `/api/composio/auth/connected` | List of connected toolkits             |
+| GET    | `/api/composio/connect/link` | Lazily-cached connect link (frontend)    |
+
+Clip error mapping: `400` bad input, `409` state conflict (e.g. already recording),
+`502` command/transfer failure, `503` device unavailable / reconnecting.
+
+Clip SSE events:
+
+```
+event: connection  data: {"connected": true, "status": {...}}
+event: recording   data: {"action": "started|stopped", "session": "...", "trigger": "web|physical"}
+event: workflow    data: {"status": "stopped|downloading|processing|failed", "session": "..."}
+event: result      data: {"session": "...", "conversation_id": "...", "transcript": "...", "response": "..."}
+```
 
 SSE event format:
 
@@ -197,7 +292,17 @@ event: done       data: {"response": "...", "conversation_id": "..."}
 pytest
 ```
 
+Clip-related tests use a fake BLE transport / fake worker and a local SQLite
+database — no real hardware or BLE is required. They cover serialized command
+lifecycle, timeout-then-reconnect, backoff, no heartbeat during download, web
+START/STOP, physical state events, reconnect reconciliation, first-start baseline,
+idempotent ingestion, raw Opus→Ogg fixtures (including corrupt/truncated input), and
+API status/error mappings.
+
 Tests use the SQLite fallback, so no external services are needed to run them.
+Registry tests verify the hybrid tool set (16 local tools when Composio is
+disabled, 19 with the 3 Composio wrappers when configured, no duplicates,
+stable ordering); prompt tests verify the hybrid routing and safety wording.
 
 ## Project structure
 
@@ -223,11 +328,14 @@ backend/
       agentic.py             # create_agent with tools
       persona.py             # Styled LLM response
   tools/
-    registry.py              # get_available_tools()
+    registry.py              # get_available_tools() — local tools + Composio gateway
     search.py                # Tavily web search
     calculator.py            # Safe expression evaluator
-    notion.py                # To-do list (add/list/complete/delete)
     conversation_search.py   # Search past conversations (Pinecone)
+    finance.py               # FMP finance tools (quotes, profile, statements, news)
+    shopify.py               # Shopify Global Catalog + UCP buyer flow (8 tools)
+    composio.py              # Composio gateway wrappers (search/execute/connect)
+    notion.py                # Legacy direct Notion module (kept, not registered)
   database/
     chat.py                  # DB facade (Supabase + SQLite fallback)
     supabase_client.py       # Supabase client
@@ -240,6 +348,8 @@ backend/
   routes/
     chat.py                  # /api/chat + /api/chat/stream (SSE)
     voice.py                 # /api/voice
+    composio.py              # /api/composio/* toolkit selection + auth status
+    google_auth.py           # Legacy direct Google OAuth module (not registered)
     tts.py                   # /api/tts
     health.py                # /api/health
 ```
@@ -260,13 +370,46 @@ backend/
 
 The agent (Groq `gpt-oss-20b` or whichever `GROQ_AGENT_MODEL`) then decides autonomously when to use it.
 
+## reSpeaker Clip integration guide
+
+**BLE prerequisites (Linux):** install BlueZ (`sudo apt install bluez bluetooth`), make
+sure the adapter is up (`bluetoothctl power on`), and confirm the Clip is pairable /
+visible. On first boot of a Clip, long-press to enter BLE pairing if needed.
+
+**Fixed SDK pin:** `requirements.txt` installs `respeaker-clip-sdk[ble]` from
+`github.com/Seeed-Studio/reSpeaker_Clip` at commit `93f86674a280b3325dd37a152d9b80d02857b049`
+(`subdirectory=sdk`). The runtime uses only the current API
+(`clip.ClipClient` + `clip.BleTransport`); legacy `ClipDevice` APIs are not used.
+
+**One process / one worker — keep the Flask reloader off.** The runtime owns a single
+long-lived BLE connection per physical device plus one reconnect supervisor. `app.py`
+runs with `use_reloader=False`; do not run multiple workers/processes that each create
+a Clip connection to the same device. In development this means starting with
+`python app.py` rather than a reloader-enabled flask command.
+
+**Ergonomics around the protocol:**
+- Commands are serialized; after a command timeout/protocol/connection failure the
+  runtime disconnects and the supervisor recreates the connection before any next command.
+- The heartbeat never issues commands while a download holds the operation lock.
+- Downloads write `.part`, validate size/CRC32, and atomically publish (SDK behavior).
+- Downloaded `NNNN.opus` files are `[u16le length][raw Opus frame]` packets — the
+  project-local `backend.clip.ogg` module re-containers them into one valid Ogg Opus
+  file (with session `sample_rate_hz`/`channels`) before Groq STT. Groq accepts `.ogg`.
+- Only BLE control/downloads are used (no Wi-Fi handoff); device sessions are never
+  deleted; successful temp audio is removed, failed artifacts are retained with bounded
+  cleanup (`CLIP_MAX_FAILED_ARTIFACTS`).
+
+**Input modes for deployment:** set `VOICE_INPUT_MODE=clip` in production so the
+selector is hidden and no `getUserMedia` call is made; keep `both` for development.
+
 ## How the voice pipeline works
 
 ```
-mic → WebM audio → POST /api/voice
-  → Groq Whisper (STT) → transcript
-  → recall relevant Mem0 memories → LangGraph (router → node)
-  → Groq LLM → response
-  → save turn + memory + async vector index
-  → Groq Orpheus (TTS) → audio/wav → browser speaker
+browser mic → WebM audio → POST /api/voice        ┐
+                                                  ├─→ shared AudioService
+Clip session (physical button or web click-to-toggle)│   (transcript → LangGraph
+  → event/stop → download .opus → re-container    │    → response → save turn
+  → Groq Whisper (STT)                             │    → memory → async index)
+  → same AudioService pipeline                     ┘
+  → Groq Orpheus (TTS) → audio/wav → browser speaker  (or /api/tts from result event)
 ```

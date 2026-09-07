@@ -1,5 +1,6 @@
 Flask==3.0.3
 flask-cors==6.0.5
+httpx==0.28.1
 groq==0.37.1
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0
@@ -11,4 +12,13 @@ mem0ai==2.0.18
 sentence-transformers==6.0.0
 pinecone==9.1.0
 supabase==2.31.0
+google-api-python-client==2.199.0
+google-auth-httplib2==0.4.2
+google-auth-oauthlib==1.4.1
+pysocks==1.7.1
 pytest==8.3.2
+composio==0.21.0
+composio_langgraph==0.21.0
+
+# reSpeaker Clip BLE integration (pinned SDK commit; subdirectory=sdk)
+respeaker-clip-sdk[ble] @ git+https://github.com/Seeed-Studio/reSpeaker_Clip.git@93f86674a280b3325dd37a152d9b80d02857b049#subdirectory=sdk
